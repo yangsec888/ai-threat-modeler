@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables
+.env
+.env.local
+
+# Database
+data/
+*.db
+*.db-shm
+*.db-wal
+# But keep the directory structure
+!data/backups/
+!data/backups/.gitkeep
+# Keep backup directory structure but ignore backup files
+data/backups/*.gz
+data/backups/*.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# uploads
+uploads/
+
+# work_dir
+work_dir/

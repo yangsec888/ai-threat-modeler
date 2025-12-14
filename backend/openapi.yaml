@@ -1,0 +1,1267 @@
+openapi: 3.1.0
+info:
+  title: AI Threat Modeler API
+  description: |
+    API for the AI Threat Modeler Dashboard - A comprehensive application security platform 
+    with threat modeling and AI-powered chat capabilities.
+    
+    ## Authentication
+    Most endpoints require JWT Bearer token authentication. Obtain a token by logging in 
+    via the `/api/auth/login` endpoint.
+    
+    ## User Roles
+    - **Admin**: Full access to all features including user management and settings
+    - **Operator**: Can schedule and manage their own jobs (threat modeling)
+    - **Auditor**: Read-only access to view all jobs and reports
+    
+  version: 0.9.0
+  contact:
+    name: Sam Li
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3001
+    description: Local development server
+  - url: http://localhost:3001/api
+    description: Local development API
+
+tags:
+  - name: Health
+    description: API health check endpoints
+  - name: Authentication
+    description: User authentication and account management
+  - name: Users
+    description: User management (Admin only)
+  - name: Settings
+    description: System settings management (Admin only)
+  - name: Threat Modeling
+    description: Threat modeling job management and reports
+  - name: Chat
+    description: Interactive AI chat interface
+
+security:
+  - BearerAuth: []
+
+paths:
+  /api/health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Check if the API is running
+      security: []
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  message:
+                    type: string
+                    example: AI Threat Modeler API is running
+
+  /api/auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register new user
+      description: Create a new user account. First user becomes Admin automatically.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - email
+                - password
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  example: john_doe
+                email:
+                  type: string
+                  format: email
+                  example: john@example.com
+                password:
+                  type: string
+                  minLength: 6
+                  format: password
+                  example: securePassword123
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: User created successfully
+                  user:
+                    $ref: '#/components/schemas/User'
+                  token:
+                    type: string
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Username or email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login user
+      description: Authenticate user and receive JWT token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  description: Username or email
+                  example: admin
+                password:
+                  type: string
+                  format: password
+                  example: password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Login successful
+                  user:
+                    $ref: '#/components/schemas/User'
+                  token:
+                    type: string
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/me:
+    get:
+      tags:
+        - Authentication
+      summary: Get current user
+      description: Retrieve authenticated user's information
+      responses:
+        '200':
+          description: User information retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/change-password:
+    post:
+      tags:
+        - Authentication
+      summary: Change password
+      description: Change the authenticated user's password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentPassword
+                - newPassword
+              properties:
+                currentPassword:
+                  type: string
+                  format: password
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 6
+      responses:
+        '200':
+          description: Password changed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password changed successfully
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/users:
+    get:
+      tags:
+        - Users
+      summary: List all users
+      description: Get a list of all users (Admin only)
+      responses:
+        '200':
+          description: Users retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags:
+        - Users
+      summary: Create user
+      description: Create a new user (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - email
+                - password
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 6
+                  format: password
+                role:
+                  $ref: '#/components/schemas/UserRole'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: User created successfully
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Username or email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/users/{id}:
+    get:
+      tags:
+        - Users
+      summary: Get user by ID
+      description: Retrieve a specific user by ID (Admin only)
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: User retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      tags:
+        - Users
+      summary: Update user
+      description: Update a user's information (Admin only)
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 6
+                  format: password
+                role:
+                  $ref: '#/components/schemas/UserRole'
+      responses:
+        '200':
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: User updated successfully
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Username or email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags:
+        - Users
+      summary: Delete user
+      description: Delete a user (Admin only). Cannot delete yourself.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: User deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: User deleted successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/settings:
+    get:
+      tags:
+        - Settings
+      summary: Get settings
+      description: Retrieve system settings (Admin only)
+      responses:
+        '200':
+          description: Settings retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  settings:
+                    $ref: '#/components/schemas/Settings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      tags:
+        - Settings
+      summary: Update settings
+      description: Update system settings (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                encryption_key:
+                  type: string
+                  minLength: 32
+                  description: Encryption key for API key storage (min 32 chars)
+                anthropic_api_key:
+                  type: string
+                  description: Anthropic API key
+                anthropic_base_url:
+                  type: string
+                  description: Anthropic API base URL
+                  default: https://api.anthropic.com
+                claude_code_max_output_tokens:
+                  type: integer
+                  minimum: 1
+                  maximum: 1000000
+                  nullable: true
+                  description: Maximum output tokens for Claude Code
+      responses:
+        '200':
+          description: Settings updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Settings updated successfully
+                  settings:
+                    $ref: '#/components/schemas/Settings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/settings/regenerate-encryption-key:
+    post:
+      tags:
+        - Settings
+      summary: Regenerate encryption key
+      description: Automatically generate a new encryption key and re-encrypt the API key (Admin only)
+      responses:
+        '200':
+          description: Encryption key regenerated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Encryption key regenerated successfully
+                  encryption_key:
+                    type: string
+                    description: The new encryption key (save this securely!)
+                  warning:
+                    type: string
+                    example: Please save this encryption key securely. If you lose it, you will not be able to decrypt the API key.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/settings/validate-api-key:
+    post:
+      tags:
+        - Settings
+      summary: Validate API key
+      description: Test if an Anthropic API key is valid (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - api_key
+              properties:
+                api_key:
+                  type: string
+                  description: Anthropic API key to validate
+                base_url:
+                  type: string
+                  description: Anthropic API base URL
+                  default: https://api.anthropic.com
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  message:
+                    type: string
+                    example: API key is valid and working correctly
+                  error:
+                    type: string
+                    description: Error message if validation failed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/threat-modeling:
+    post:
+      tags:
+        - Threat Modeling
+      summary: Create threat modeling job
+      description: |
+        Create a new threat modeling job by uploading a ZIP file containing the codebase.
+        Requires Admin or Operator role.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - repository
+              properties:
+                repository:
+                  type: string
+                  format: binary
+                  description: ZIP file containing the codebase (max 2GB)
+                query:
+                  type: string
+                  description: Custom query for threat modeling
+                  default: Perform threat modeling analysis
+                repoName:
+                  type: string
+                  description: Repository name (auto-detected from ZIP if not provided)
+                gitBranch:
+                  type: string
+                  description: Git branch name
+                gitCommit:
+                  type: string
+                  description: Git commit hash
+      responses:
+        '200':
+          description: Threat modeling job created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Threat modeling job created
+                  jobId:
+                    type: string
+                    format: uuid
+                  job:
+                    $ref: '#/components/schemas/ThreatModelingJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/threat-modeling/jobs:
+    get:
+      tags:
+        - Threat Modeling
+      summary: List threat modeling jobs
+      description: |
+        Get all threat modeling jobs.
+        - Admin/Operator see only their own jobs
+        - Auditor sees all jobs with owner information
+      responses:
+        '200':
+          description: Jobs retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ThreatModelingJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/threat-modeling/jobs/{id}:
+    get:
+      tags:
+        - Threat Modeling
+      summary: Get threat modeling job
+      description: Retrieve a specific threat modeling job with report contents
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  job:
+                    allOf:
+                      - $ref: '#/components/schemas/ThreatModelingJob'
+                      - type: object
+                        properties:
+                          dataFlowDiagramContent:
+                            type: string
+                            nullable: true
+                          threatModelContent:
+                            type: string
+                            nullable: true
+                          riskRegistryContent:
+                            type: string
+                            nullable: true
+                          reportContent:
+                            type: string
+                            nullable: true
+                            description: Backward compatibility
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags:
+        - Threat Modeling
+      summary: Delete threat modeling job
+      description: Delete a threat modeling job and its associated files
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Job deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/threat-modeling/reports:
+    get:
+      tags:
+        - Threat Modeling
+      summary: List threat modeling reports
+      description: Get all completed threat modeling reports
+      responses:
+        '200':
+          description: Reports retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  reports:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        repoPath:
+                          type: string
+                        query:
+                          type: string
+                        reportPath:
+                          type: string
+                        dataFlowDiagramPath:
+                          type: string
+                          nullable: true
+                        threatModelPath:
+                          type: string
+                          nullable: true
+                        riskRegistryPath:
+                          type: string
+                          nullable: true
+                        createdAt:
+                          type: string
+                          format: date-time
+                        completedAt:
+                          type: string
+                          format: date-time
+                          nullable: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/threat-modeling/reports/{jobId}/download:
+    get:
+      tags:
+        - Threat Modeling
+      summary: Download threat modeling reports
+      description: |
+        Download threat modeling reports. Use query parameter to specify which report(s) to download.
+      parameters:
+        - $ref: '#/components/parameters/JobIdParam'
+        - name: type
+          in: query
+          description: Report type to download
+          schema:
+            type: string
+            enum:
+              - all
+              - data_flow_diagram
+              - threat_model
+              - risk_registry
+            default: all
+      responses:
+        '200':
+          description: Report file(s)
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+                description: ZIP file with all reports (when type=all)
+            text/plain:
+              schema:
+                type: string
+                format: binary
+                description: Single report file
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/chat:
+    post:
+      tags:
+        - Chat
+      summary: Send chat message
+      description: |
+        Send a message to the AI chat agent and receive a response.
+        Sessions are maintained per user. Send "/end" to terminate the session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+                  description: User message
+                  example: What are common SQL injection vulnerabilities?
+                role:
+                  type: string
+                  description: AI agent role
+                  default: simple_query_agent
+                  example: simple_query_agent
+      responses:
+        '200':
+          description: Chat response received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  response:
+                    type: string
+                    description: AI response
+                  role:
+                    type: string
+                  sessionActive:
+                    type: boolean
+                  sessionEnded:
+                    type: boolean
+                    description: Set to true if "/end" was sent
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/chat/end:
+    post:
+      tags:
+        - Chat
+      summary: End chat session
+      description: Explicitly terminate the current chat session
+      responses:
+        '200':
+          description: Session ended
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                  sessionEnded:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/chat/session:
+    get:
+      tags:
+        - Chat
+      summary: Get session status
+      description: Check if user has an active chat session
+      responses:
+        '200':
+          description: Session status retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hasSession:
+                    type: boolean
+                  sessionActive:
+                    type: boolean
+                  lastActivity:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/chat/health:
+    get:
+      tags:
+        - Chat
+      summary: Chat health check
+      description: Check if chat service is healthy and configured
+      responses:
+        '200':
+          description: Chat service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  agentRunPath:
+                    type: string
+                  apiConfigured:
+                    type: boolean
+                  activeSessions:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          description: Chat service is unhealthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: unhealthy
+                  error:
+                    type: string
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from login endpoint
+
+  parameters:
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: User ID
+      schema:
+        type: integer
+        example: 1
+
+    JobId:
+      name: id
+      in: path
+      required: true
+      description: Job ID (UUID)
+      schema:
+        type: string
+        format: uuid
+        example: 042e32c5-688c-4d2e-bf30-76b1da9b5624
+
+    JobIdParam:
+      name: jobId
+      in: path
+      required: true
+      description: Job ID (UUID) for report download
+      schema:
+        type: string
+        format: uuid
+        example: 042e32c5-688c-4d2e-bf30-76b1da9b5624
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        username:
+          type: string
+          example: admin
+        email:
+          type: string
+          format: email
+          example: admin@example.com
+        role:
+          $ref: '#/components/schemas/UserRole'
+        password_changed:
+          type: boolean
+          description: Whether user has changed their default password
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserRole:
+      type: string
+      enum:
+        - Admin
+        - Operator
+        - Auditor
+      description: |
+        User roles:
+        - Admin: Full system access including user management and settings
+        - Operator: Can schedule and manage jobs
+        - Auditor: Read-only access to view all jobs and reports
+
+    Settings:
+      type: object
+      properties:
+        encryption_key:
+          type: string
+          description: Encryption key for API key storage
+        anthropic_api_key:
+          type: string
+          nullable: true
+          description: Shows "***ENCRYPTED***" when API key is set
+          example: "***ENCRYPTED***"
+        anthropic_base_url:
+          type: string
+          example: https://api.anthropic.com
+        claude_code_max_output_tokens:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 1000000
+          example: 32000
+        updated_at:
+          type: string
+          format: date-time
+
+    ThreatModelingJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 216e0a8f-990c-4723-afc9-665c4457dfaa
+        repoPath:
+          type: string
+          example: "[UPLOADED] my-app.zip"
+        query:
+          type: string
+          example: Perform threat modeling analysis
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        reportPath:
+          type: string
+          nullable: true
+          description: Deprecated, use specific paths
+        dataFlowDiagramPath:
+          type: string
+          nullable: true
+        threatModelPath:
+          type: string
+          nullable: true
+        riskRegistryPath:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+        repoName:
+          type: string
+          nullable: true
+          example: my-app
+        gitBranch:
+          type: string
+          nullable: true
+          example: main
+        gitCommit:
+          type: string
+          nullable: true
+          example: abc123
+        executionDuration:
+          type: integer
+          nullable: true
+          description: Execution time in seconds
+          example: 240
+        apiCost:
+          type: string
+          nullable: true
+          example: "$0.35"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        owner:
+          type: string
+          description: Username of job owner (only for Auditors)
+          example: john_doe
+
+    JobStatus:
+      type: string
+      enum:
+        - pending
+        - processing
+        - completed
+        - failed
+      description: |
+        Job execution status:
+        - pending: Job created, waiting to start
+        - processing: Job is currently running
+        - completed: Job finished successfully
+        - failed: Job failed with error
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Error message
+        message:
+          type: string
+          example: Detailed error description
+        code:
+          type: string
+          description: Optional error code
+          example: USER_NOT_FOUND
+
+  responses:
+    BadRequest:
+      description: Bad request - invalid parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Bad request
+            message: Invalid parameters provided
+
+    Unauthorized:
+      description: Unauthorized - missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Access token required
+            message: Please provide a valid authentication token
+
+    Forbidden:
+      description: Forbidden - insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Access denied
+            message: Admin role required
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Not found
+            message: The requested resource was not found
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Internal server error
+            message: An unexpected error occurred
+

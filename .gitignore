@@ -1,0 +1,43 @@
+# Node.js dependencies
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Log directories (keep dir, ignore contents)
+backend/logs/*
+!backend/logs/.gitkeep
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
+.vscode/
+
+# Next.js build output
+.next/
+out/
+
+# Database files (may contain sensitive user data)
+backend/data/*.db
+backend/data/*.db-shm
+backend/data/*.db-wal
+
+# Uploaded files
+backend/uploads/
+frontend/uploads/
+
+# IDE files
+.idea/
+*.swp
+*.swo
+*~
+
+# no .source-to-analyze directory
+.source-to-analyze/
+
+# contents of threat-modeling-reports directory (ignore subdirectories only)
+backend/threat-modeling-reports/*/
+
+# no code coverage reports
+coverage/
+
