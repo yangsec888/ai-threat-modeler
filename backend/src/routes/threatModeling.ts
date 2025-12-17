@@ -20,6 +20,45 @@ import logger from '../utils/logger';
 
 const router = Router();
 
+// Base directory name for reports (relative to process.cwd())
+const REPORTS_DIR_NAME = 'threat-modeling-reports';
+
+/**
+ * Resolve a report path to an absolute path
+ * Handles both relative paths (stored in DB) and legacy absolute paths
+ * Works in both dev (backend/) and prod (Docker /app/) environments
+ */
+function resolveReportPath(storedPath: string | null): string | null {
+  if (!storedPath) return null;
+  
+  // If it's already an absolute path that exists, use it
+  if (path.isAbsolute(storedPath) && fs.existsSync(storedPath)) {
+    return storedPath;
+  }
+  
+  // If it's a relative path, resolve it from cwd
+  if (!path.isAbsolute(storedPath)) {
+    const resolved = path.join(process.cwd(), storedPath);
+    if (fs.existsSync(resolved)) {
+      return resolved;
+    }
+  }
+  
+  // Try to extract the relative portion from an absolute path
+  // This handles paths like /app/threat-modeling-reports/xxx when running in dev
+  const reportsIndex = storedPath.indexOf(REPORTS_DIR_NAME);
+  if (reportsIndex !== -1) {
+    const relativePath = storedPath.substring(reportsIndex);
+    const resolved = path.join(process.cwd(), relativePath);
+    if (fs.existsSync(resolved)) {
+      return resolved;
+    }
+  }
+  
+  // Path doesn't exist in any form
+  return null;
+}
+
 // Track running jobs and their abort controllers for cancellation
 interface RunningJob {
   abortController: AbortController;
@@ -1101,12 +1140,17 @@ router.get('/jobs', authenticateToken, (req: AuthRequest, res: Response) => {
 function readReportContent(filePath: string | null): string | null {
   if (!filePath) return null;
   
+  // Resolve the path (handles dev vs prod environments)
+  const resolvedPath = resolveReportPath(filePath);
+  if (!resolvedPath) {
+    logger.warn(`⚠️ Could not resolve report file path: ${filePath}`);
+    return null;
+  }
+  
   try {
-    if (fs.existsSync(filePath)) {
-      return fs.readFileSync(filePath, 'utf-8');
-    }
+    return fs.readFileSync(resolvedPath, 'utf-8');
   } catch (err: unknown) {
-    logger.warn(`⚠️ Could not read report file ${filePath}:`, err);
+    logger.warn(`⚠️ Could not read report file ${resolvedPath}:`, err);
   }
   return null;
 }
@@ -1345,43 +1389,50 @@ router.get('/reports/:jobId/download', authenticateToken, (req: AuthRequest, res
       res.attachment(`threat_modeling_reports_${jobId}.zip`);
       zip.pipe(res);
       
-      // Add each report file if it exists
-      if (job.data_flow_diagram_path && fs.existsSync(job.data_flow_diagram_path)) {
-        zip.file(job.data_flow_diagram_path, { name: path.basename(job.data_flow_diagram_path) });
+      // Add each report file if it exists (resolve paths for dev/prod compatibility)
+      const dfdPath = resolveReportPath(job.data_flow_diagram_path);
+      const tmPath = resolveReportPath(job.threat_model_path);
+      const rrPath = resolveReportPath(job.risk_registry_path);
+      const legacyPath = resolveReportPath(job.report_path);
+      
+      if (dfdPath) {
+        zip.file(dfdPath, { name: path.basename(dfdPath) });
       }
-      if (job.threat_model_path && fs.existsSync(job.threat_model_path)) {
-        zip.file(job.threat_model_path, { name: path.basename(job.threat_model_path) });
+      if (tmPath) {
+        zip.file(tmPath, { name: path.basename(tmPath) });
       }
-      if (job.risk_registry_path && fs.existsSync(job.risk_registry_path)) {
-        zip.file(job.risk_registry_path, { name: path.basename(job.risk_registry_path) });
+      if (rrPath) {
+        zip.file(rrPath, { name: path.basename(rrPath) });
       }
       // Fallback to report_path for backward compatibility
-      if (!job.threat_model_path && job.report_path && fs.existsSync(job.report_path)) {
-        zip.file(job.report_path, { name: path.basename(job.report_path) });
+      if (!tmPath && legacyPath) {
+        zip.file(legacyPath, { name: path.basename(legacyPath) });
       }
       
       zip.finalize();
     } else {
       // Download a single report file
-      let filePath: string | null = null;
+      let storedPath: string | null = null;
       let filename = '';
       
       if (type === 'data_flow_diagram' && job.data_flow_diagram_path) {
-        filePath = job.data_flow_diagram_path;
+        storedPath = job.data_flow_diagram_path;
         filename = `data_flow_diagram_${jobId}.txt`;
       } else if (type === 'threat_model' && job.threat_model_path) {
-        filePath = job.threat_model_path;
+        storedPath = job.threat_model_path;
         filename = `threat_model_${jobId}.txt`;
       } else if (type === 'risk_registry' && job.risk_registry_path) {
-        filePath = job.risk_registry_path;
+        storedPath = job.risk_registry_path;
         filename = `risk_registry_${jobId}.txt`;
       } else if (type === 'threat_model' && job.report_path) {
         // Fallback for backward compatibility
-        filePath = job.report_path;
+        storedPath = job.report_path;
         filename = `threat_model_${jobId}.txt`;
       }
       
-      if (!filePath || !fs.existsSync(filePath)) {
+      // Resolve path for dev/prod compatibility
+      const filePath = resolveReportPath(storedPath);
+      if (!filePath) {
         return res.status(404).json({ error: 'Report file not found' });
       }
       
