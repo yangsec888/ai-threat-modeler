@@ -5,6 +5,22 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-02-11
+
+### Changed
+- **Frontend dependencies updated** to latest safe versions:
+  - Next.js: 14.0.4 → 14.2.35
+  - React: 18.2.0 → 18.3.1
+  - React-DOM: 18.2.0 → 18.3.1
+  - eslint-config-next: 14.0.4 → 14.2.35
+  - @types/react: 18.2.45 → 18.3.18
+  - @types/react-dom: 18.2.18 → 18.3.5
+
+### Fixed
+- **Report path resolver**: Fixed reports not loading in dev mode when created in Docker
+  - Added `resolveReportPath()` helper for cross-environment compatibility
+  - Automatically resolves Docker paths (`/app/...`) to local paths
+
 ## [1.1.0] - 2025-12-14
 
 ### Added
