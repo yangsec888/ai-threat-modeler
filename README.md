@@ -4,7 +4,9 @@ AI-powered threat modeling application built for Application Security automation
 
 ## 📹 Demo
 
-<video src="demo.mp4" controls width="100%"></video>
+![Demo video](https://github.com/user-attachments/assets/0b263eb0-945c-43d8-b540-2a7340c7c8d2)
+
+Or [📹 watch on the file page](https://github.com/yangsec888/ai-threat-modeler/blob/main/demo.mp4).
 
 ## 🚀 Quick Start
 
