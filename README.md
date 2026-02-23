@@ -2,6 +2,10 @@
 
 AI-powered threat modeling application built for Application Security automation.
 
+## 📹 Demo
+
+<video src="demo.mp4" controls width="100%"></video>
+
 ## 🚀 Quick Start
 
 ```bash
