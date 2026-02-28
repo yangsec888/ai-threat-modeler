@@ -1,6 +1,6 @@
 {
   "name": "threat-model-ai",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "AI-powered threat modeling application built on top of appsec-agent library",
   "author": "Sam Li",
   "license": "MIT",
@@ -13,6 +13,7 @@
     "backend:install": "cd backend && npm install",
     "backend:dev": "cd backend && npm run dev",
     "backend:build": "cd backend && npm run build",
+    "build:all": "npm run build && npm run backend:build && npm run frontend:build",
     "backend:start": "cd backend && npm start",
     "frontend:install": "cd frontend && npm install",
     "frontend:dev": "cd frontend && npm run dev",

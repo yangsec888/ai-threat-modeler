@@ -1,6 +1,6 @@
 {
   "name": "threat-model-ai-backend",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Express.js backend for AI Threat Modeler Dashboard",
   "main": "dist/index.js",
   "scripts": {
@@ -16,14 +16,14 @@
     "openapi:info": "echo '\n📚 API Documentation:\n   Interactive: http://localhost:3001/api-docs\n   Spec File: backend/openapi.yaml\n   Guide: backend/API_DOCUMENTATION.md\n'"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.30",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.39",
     "@types/archiver": "^7.0.0",
     "@types/bcrypt": "^6.0.0",
     "@types/express-session": "^1.18.2",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/uuid": "^10.0.0",
-    "appsec-agent": "^0.2.0",
+    "appsec-agent": "file:../appsec-agent",
     "archiver": "^7.0.1",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.4.1",

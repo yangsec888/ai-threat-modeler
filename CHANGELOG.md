@@ -5,6 +5,17 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-02-28
+
+### Added
+- **build:all** script: Root script to build root, backend, and frontend in one command
+- **README demo**: Inline demo video via GitHub asset URL (playable in README)
+
+### Changed
+- **Frontend security upgrade**: Next.js 14.2.35 → 15.5.10, React 18 → 19 (addresses RSC DoS and Image Optimizer DoS advisories)
+- **lucide-react**: 0.303.0 → 0.468.0 for React 19 compatibility
+- **eslint-config-next** and **@types/react** / **@types/react-dom** aligned with Next 15 and React 19
+
 ## [1.2.0] - 2026-02-11
 
 ### Changed
