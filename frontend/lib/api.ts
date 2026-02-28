@@ -180,8 +180,8 @@ export const api = {
     return response.json();
   },
 
-  downloadThreatModelingReport: async (jobId: string, type: 'data_flow_diagram' | 'threat_model' | 'risk_registry' | 'all' = 'all') => {
-    const response = await fetch(`${API_BASE_URL}/threat-modeling/reports/${jobId}/download?type=${type}`, {
+  downloadThreatModelingReport: async (jobId: string, format: 'json' | 'csv' = 'json') => {
+    const response = await fetch(`${API_BASE_URL}/threat-modeling/reports/${jobId}/download?format=${format}`, {
       headers: getAuthHeaders(),
     });
     
@@ -195,14 +195,9 @@ export const api = {
     const a = document.createElement('a');
     a.href = url;
     
-    // Determine filename based on type
-    const filename = type === 'all'
-      ? `threat_modeling_reports_${jobId}.zip`
-      : type === 'data_flow_diagram' 
-      ? `data_flow_diagram_${jobId}.txt`
-      : type === 'risk_registry'
-      ? `risk_registry_${jobId}.txt`
-      : `threat_model_${jobId}.txt`;
+    const filename = format === 'csv'
+      ? `risk_registry_${jobId}.csv`
+      : `threat_model_report_${jobId}.json`;
     
     a.download = filename;
     document.body.appendChild(a);

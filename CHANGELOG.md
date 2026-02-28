@@ -5,6 +5,28 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-02-28
+
+### Added
+- **Structured JSON threat model output**: Threat modeler now produces a single structured JSON report with predefined schema, replacing 3 separate unstructured markdown files
+- **Mermaid DFD rendering**: Data Flow Diagrams rendered as interactive Mermaid flowcharts generated deterministically from structured node/flow/boundary data
+- **PDF export**: Export Data Flow Diagram and Threat Model reports as vector-quality PDFs using jspdf + svg2pdf.js + jspdf-autotable
+- **Structured report preview**: Threat Model and Risk Registry displayed as sortable tables with severity badges, STRIDE category tags, and cross-references
+- **Frontend types**: New `types/threatModel.ts` with TypeScript interfaces matching the JSON schema
+- **MermaidDiagram component**: Reusable client-side Mermaid SVG rendering component
+- **Server-side CSV export**: Backend endpoint for Risk Registry CSV export from structured data
+
+### Changed
+- **appsec-agent upgraded to v1.6.0**: Threat modeler uses Claude Agent SDK `outputFormat` with JSON schema enforcement (backward compatible via `output_format` flag)
+- **Backend report handling**: Single JSON report file collected and parsed; API returns structured sections instead of raw text
+- **Risk Registry Excel export**: Rewritten to map directly from typed JSON arrays to CSV rows (no markdown parsing)
+- **Download endpoint**: Simplified to `format=json|csv` (replaces `type=data_flow_diagram|threat_model|risk_registry|all`)
+- **agent-run path resolution**: Fixed to find `dist/bin/agent-run.js` in published npm packages
+
+### Removed
+- **riskRegistryParser.ts**: Removed the 250-line fragile markdown parser (replaced by structured JSON data)
+- **Plain text report rendering**: Removed `<pre>` tag display of raw markdown reports
+
 ## [1.2.1] - 2026-02-28
 
 ### Added

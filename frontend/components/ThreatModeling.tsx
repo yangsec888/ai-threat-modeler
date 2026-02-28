@@ -14,12 +14,14 @@ import { ToastContainer } from '@/components/ui/toast'
 import { useToast } from '@/hooks/useToast'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
-import { FolderOpen, Download, Eye, Loader2, CheckCircle, XCircle, Clock, Trash2, Upload, FileSpreadsheet } from 'lucide-react'
+import { FolderOpen, Download, Eye, Loader2, CheckCircle, XCircle, Clock, Trash2, Upload, FileSpreadsheet, FileText, ChevronDown, ChevronRight } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { formatDateWithTimezone } from '@/utils/date'
-import { parseRiskRegistry } from '@/utils/riskRegistryParser'
 import { sanitizeErrorMessage } from '@/lib/security'
 import JSZip from 'jszip'
+import type { DataFlowDiagram, ThreatModel, RiskRegistry, ReportMetadata, Recommendation, Threat, Risk } from '@/types/threatModel'
+import { dfdToMermaid } from '@/utils/dfdToMermaid'
+import MermaidDiagram from '@/components/MermaidDiagram'
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) {
@@ -45,10 +47,6 @@ interface ThreatModelingJob {
   repoPath: string
   query: string | null
   status: 'pending' | 'processing' | 'completed' | 'failed'
-  reportPath: string | null // Backward compatibility
-  dataFlowDiagramPath?: string | null
-  threatModelPath?: string | null
-  riskRegistryPath?: string | null
   errorMessage: string | null
   repoName?: string | null
   gitBranch?: string | null
@@ -58,13 +56,45 @@ interface ThreatModelingJob {
   createdAt: string
   updatedAt: string
   completedAt: string | null
-  // Report contents
-  reportContent?: string | null // Backward compatibility
-  dataFlowDiagramContent?: string | null
-  threatModelContent?: string | null
-  riskRegistryContent?: string | null
-  // Owner information (for Auditors)
+  metadata?: ReportMetadata | null
+  dataFlowDiagram?: DataFlowDiagram | null
+  threatModel?: ThreatModel | null
+  riskRegistry?: RiskRegistry | null
+  recommendations?: Recommendation[] | null
+  conclusion?: string | null
   owner?: string
+}
+
+const SEVERITY_COLORS: Record<string, string> = {
+  CRITICAL: 'bg-red-100 text-red-800',
+  HIGH: 'bg-orange-100 text-orange-800',
+  MEDIUM: 'bg-yellow-100 text-yellow-800',
+  LOW: 'bg-green-100 text-green-800',
+}
+
+const STRIDE_COLORS: Record<string, string> = {
+  'Spoofing': 'bg-purple-100 text-purple-800',
+  'Tampering': 'bg-rose-100 text-rose-800',
+  'Repudiation': 'bg-amber-100 text-amber-800',
+  'Information Disclosure': 'bg-cyan-100 text-cyan-800',
+  'Denial of Service': 'bg-red-100 text-red-800',
+  'Elevation of Privilege': 'bg-indigo-100 text-indigo-800',
+}
+
+function SeverityBadge({ severity }: { severity: string }) {
+  return (
+    <span className={`px-2 py-0.5 rounded text-xs font-medium ${SEVERITY_COLORS[severity] || 'bg-gray-100 text-gray-800'}`}>
+      {severity}
+    </span>
+  )
+}
+
+function StrideBadge({ category }: { category: string }) {
+  return (
+    <span className={`px-2 py-0.5 rounded text-xs font-medium ${STRIDE_COLORS[category] || 'bg-gray-100 text-gray-800'}`}>
+      {category}
+    </span>
+  )
 }
 
 export function ThreatModeling() {
@@ -278,13 +308,11 @@ export function ThreatModeling() {
       // Query is loaded from built-in YAML config file, not passed from frontend
       const response = await api.threatModeling(zipFile)
       
-      // Add the new job to the list
       const newJob: ThreatModelingJob = {
         id: response.jobId,
         repoPath: response.job.repoPath,
         query: response.job.query,
         status: response.job.status,
-        reportPath: null,
         errorMessage: null,
         repoName: response.job.repoName || null,
         gitBranch: response.job.gitBranch || null,
@@ -316,133 +344,65 @@ export function ThreatModeling() {
   const handleViewReport = async (job: ThreatModelingJob) => {
     try {
       const response = await api.getThreatModelingJob(job.id)
-      console.log('Job response:', response)
-      
       const updatedJob = response.job
       
-      // Check if any report content is available
-      const hasAnyContent = updatedJob.dataFlowDiagramContent || 
-                           updatedJob.threatModelContent || 
-                           updatedJob.riskRegistryContent ||
-                           updatedJob.reportContent // Backward compatibility
+      const hasAnyContent = updatedJob.dataFlowDiagram || 
+                           updatedJob.threatModel || 
+                           updatedJob.riskRegistry
       
       if (updatedJob.status === 'completed' && !hasAnyContent) {
-        console.warn('Job is completed but report content is missing')
         showError('Report content is not available. The file may not have been generated correctly.')
       }
       
       setSelectedJob(updatedJob)
     } catch (err: unknown) {
       console.error('Error loading report:', err)
-      if (err instanceof Error) {
-        showError(err.message)
-      } else {
-        showError('Failed to load report')
-      }
+      showError(err instanceof Error ? err.message : 'Failed to load report')
     }
   }
 
-  const handleDownloadReport = async (jobId: string, type: 'data_flow_diagram' | 'threat_model' | 'risk_registry' | 'all' = 'all') => {
+  const handleDownloadJson = async (jobId: string) => {
     try {
-      await api.downloadThreatModelingReport(jobId, type)
-      const reportName = type === 'all' ? 'All Reports (ZIP)'
-                            : type === 'data_flow_diagram' ? 'Data Flow Diagram' 
-                            : type === 'risk_registry' ? 'Risk Registry' 
-                            : 'Threat Model'
-      success(`${reportName} downloaded successfully!`)
+      await api.downloadThreatModelingReport(jobId, 'json')
+      success('JSON report downloaded successfully!')
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        showError(err.message)
-      } else {
-        showError('Failed to download report')
-      }
+      showError(err instanceof Error ? err.message : 'Failed to download report')
     }
-  }
-
-
-  const prepareRiskData = (riskRegistryContent: string): string[][] => {
-    const risks = parseRiskRegistry(riskRegistryContent)
-    
-    if (risks.length === 0) {
-      throw new Error('No risks found in the Risk Registry')
-    }
-    
-    // Get all unique field names
-    const allFields = new Set<string>()
-    risks.forEach(risk => {
-      Object.keys(risk).forEach(key => allFields.add(key))
-    })
-    
-    // Define column order (prioritize important fields)
-    const priorityFields = [
-      'Risk ID',
-      'Title',
-      'Category',
-      'STRIDE',
-      'Severity',
-      'Current Risk Score',
-      'Residual Risk Score',
-      'Description',
-      'Affected Components',
-      'Business Impact',
-      'Remediation Plan',
-      'Effort Estimate',
-      'Cost Estimate',
-      'Timeline',
-    ]
-    
-    const orderedFields = [
-      ...priorityFields.filter(f => allFields.has(f)),
-      ...Array.from(allFields).filter(f => !priorityFields.includes(f)).sort(),
-    ]
-    
-    // Create data array for Excel export
-    const data: string[][] = []
-    
-    // Header row
-    data.push(orderedFields)
-    
-    // Data rows
-    risks.forEach(risk => {
-      const row = orderedFields.map(field => {
-        const value = risk[field] || ''
-        // Clean up newlines and extra whitespace for better display in Excel
-        return String(value).replace(/\n/g, ' ').replace(/\r/g, '').trim()
-      })
-      data.push(row)
-    })
-    
-    return data
   }
 
   const handleExcelExport = () => {
-    if (!selectedJob?.riskRegistryContent) {
-      showError('No Risk Registry content available')
+    const risks = selectedJob?.riskRegistry?.risks
+    if (!risks?.length) {
+      showError('No risks found in the Risk Registry')
       return
     }
 
     try {
-      const data = prepareRiskData(selectedJob.riskRegistryContent)
-      const fileName = `Risk Registry - ${selectedJob.repoPath} - ${selectedJob.id.substring(0, 8)}.csv`
-      
-      // Convert data to CSV format
-      const csvContent = data.map(row => {
-        // Escape fields that contain commas, quotes, or newlines
-        return row.map(field => {
-          const stringField = String(field || '')
-          if (stringField.includes(',') || stringField.includes('"') || stringField.includes('\n')) {
-            // Escape quotes by doubling them, then wrap in quotes
-            return `"${stringField.replace(/"/g, '""')}"`
-          }
-          return stringField
-        }).join(',')
-      }).join('\n')
-      
-      // Add BOM for UTF-8 to ensure Excel opens it correctly
+      const columns: Array<keyof Risk> = [
+        'id', 'title', 'category', 'stride_category', 'severity',
+        'current_risk_score', 'residual_risk_score', 'description',
+        'affected_components', 'business_impact', 'remediation_plan',
+        'effort_estimate', 'cost_estimate', 'timeline', 'related_threats'
+      ]
+
+      const escapeCSV = (val: unknown): string => {
+        const str = Array.isArray(val) ? val.join(', ') : String(val ?? '')
+        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+          return `"${str.replace(/"/g, '""')}"`
+        }
+        return str
+      }
+
+      const header = columns.map(c => escapeCSV(c.replace(/_/g, ' ').toUpperCase())).join(',')
+      const rows = risks.map(risk =>
+        columns.map(col => escapeCSV(risk[col])).join(',')
+      )
+
       const BOM = '\uFEFF'
-      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' })
-      
-      // Create download link
+      const csvContent = BOM + [header, ...rows].join('\n')
+      const fileName = `Risk Registry - ${selectedJob?.repoPath} - ${selectedJob?.id.substring(0, 8)}.csv`
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
       const link = document.createElement('a')
       const url = URL.createObjectURL(blob)
       link.setAttribute('href', url)
@@ -452,15 +412,89 @@ export function ThreatModeling() {
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
-      
+
       success('Risk Registry exported to Excel successfully!')
     } catch (err: unknown) {
-      console.error('Error exporting to Excel:', err)
-      if (err instanceof Error) {
-        showError(`Failed to export: ${err.message}`)
-      } else {
-        showError('Failed to export Risk Registry to Excel')
+      showError(err instanceof Error ? `Failed to export: ${err.message}` : 'Failed to export Risk Registry')
+    }
+  }
+
+  const handlePdfExport = async (section: 'dfd' | 'threats') => {
+    if (!selectedJob) return
+    try {
+      const { jsPDF } = await import('jspdf')
+      const autoTable = (await import('jspdf-autotable')).default
+
+      const doc = new jsPDF({ orientation: 'landscape' })
+      const projectName = selectedJob.metadata?.project_name || selectedJob.repoPath
+      const scanDate = selectedJob.metadata?.scan_date || ''
+
+      doc.setFontSize(16)
+      doc.text(`Threat Model Report - ${projectName}`, 14, 15)
+      doc.setFontSize(10)
+      doc.text(`Generated: ${scanDate}`, 14, 22)
+
+      if (section === 'dfd' && selectedJob.dataFlowDiagram) {
+        const dfd = selectedJob.dataFlowDiagram
+        doc.setFontSize(12)
+        doc.text('Data Flow Diagram', 14, 32)
+        doc.setFontSize(9)
+        const descLines = doc.splitTextToSize(dfd.description || '', 270)
+        doc.text(descLines, 14, 39)
+
+        let startY = 39 + descLines.length * 4 + 6
+
+        autoTable(doc, {
+          startY,
+          head: [['ID', 'Name', 'Type', 'Description']],
+          body: dfd.nodes.map(n => [n.id, n.name, n.type, n.description || '']),
+          theme: 'striped',
+          headStyles: { fillColor: [59, 130, 246] },
+          styles: { fontSize: 8 },
+        })
+
+        autoTable(doc, {
+          startY: (doc as any).lastAutoTable.finalY + 8,
+          head: [['ID', 'Source', 'Destination', 'Description', 'Protocol', 'Classification']],
+          body: dfd.data_flows.map(f => [f.id, f.source, f.destination, f.description, f.protocol || '', f.data_classification || '']),
+          theme: 'striped',
+          headStyles: { fillColor: [59, 130, 246] },
+          styles: { fontSize: 8 },
+        })
+      } else if (section === 'threats' && selectedJob.threatModel) {
+        const tm = selectedJob.threatModel
+        doc.setFontSize(12)
+        doc.text('STRIDE Threat Analysis', 14, 32)
+        doc.setFontSize(9)
+        const summaryLines = doc.splitTextToSize(tm.executive_summary || '', 270)
+        doc.text(summaryLines, 14, 39)
+
+        const startY = 39 + summaryLines.length * 4 + 6
+
+        autoTable(doc, {
+          startY,
+          head: [['ID', 'Title', 'STRIDE', 'Severity', 'Likelihood', 'Impact', 'Mitigation']],
+          body: tm.threats.map(t => [t.id, t.title, t.stride_category, t.severity, t.likelihood, t.impact, t.mitigation]),
+          theme: 'striped',
+          headStyles: { fillColor: [59, 130, 246] },
+          styles: { fontSize: 7, cellWidth: 'wrap' },
+          columnStyles: {
+            0: { cellWidth: 22 },
+            1: { cellWidth: 35 },
+            2: { cellWidth: 30 },
+            3: { cellWidth: 18 },
+            4: { cellWidth: 18 },
+          },
+        })
       }
+
+      const fileName = section === 'dfd'
+        ? `DFD - ${projectName} - ${selectedJob.id.substring(0, 8)}.pdf`
+        : `Threat Model - ${projectName} - ${selectedJob.id.substring(0, 8)}.pdf`
+      doc.save(fileName)
+      success('PDF exported successfully!')
+    } catch (err: unknown) {
+      showError(err instanceof Error ? `Failed to export PDF: ${err.message}` : 'Failed to export PDF')
     }
   }
 
@@ -689,11 +723,11 @@ export function ThreatModeling() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleDownloadReport(job.id)}
+                            onClick={() => handleDownloadJson(job.id)}
                             className="flex items-center gap-2"
                           >
                             <Download className="h-4 w-4" />
-                            Download
+                            Download JSON
                           </Button>
                         </>
                       )}
@@ -717,7 +751,7 @@ export function ThreatModeling() {
           </CardContent>
         </Card>
 
-      {/* Report Preview Modal */}
+      {/* Report Preview */}
       {selectedJob && selectedJob.status === 'completed' && (
         <Card>
           <CardHeader>
@@ -725,108 +759,239 @@ export function ThreatModeling() {
               <div>
                 <CardTitle>Report Preview</CardTitle>
                 <CardDescription>
-                  Threat modeling reports for {selectedJob.repoPath}
+                  Threat modeling report for {selectedJob.metadata?.project_name || selectedJob.repoPath}
+                  {selectedJob.metadata?.scan_date && ` — ${selectedJob.metadata.scan_date}`}
                 </CardDescription>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSelectedJob(null)}
-              >
-                Close
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownloadJson(selectedJob.id)}
+                  className="flex items-center gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  Download JSON
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedJob(null)}
+                >
+                  Close
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="threat_model" className="w-full">
+            <Tabs defaultValue="data_flow_diagram" className="w-full">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="data_flow_diagram">Data Flow Diagram</TabsTrigger>
-                <TabsTrigger value="threat_model">Threat Model</TabsTrigger>
-                <TabsTrigger value="risk_registry">Risk Registry</TabsTrigger>
+                <TabsTrigger value="threat_model">
+                  Threat Model {selectedJob.metadata?.total_threats_identified != null && `(${selectedJob.metadata.total_threats_identified})`}
+                </TabsTrigger>
+                <TabsTrigger value="risk_registry">
+                  Risk Registry {selectedJob.metadata?.total_risks_identified != null && `(${selectedJob.metadata.total_risks_identified})`}
+                </TabsTrigger>
               </TabsList>
               
+              {/* Tab 1: Data Flow Diagram */}
               <TabsContent value="data_flow_diagram" className="space-y-4 mt-4">
                 <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => handleDownloadReport(selectedJob.id, 'data_flow_diagram')}
-                    className="flex items-center gap-2"
-                    disabled={!selectedJob.dataFlowDiagramContent}
-                  >
-                    <Download className="h-4 w-4" />
-                    Download Data Flow Diagram
+                  <Button variant="outline" onClick={() => handlePdfExport('dfd')} disabled={!selectedJob.dataFlowDiagram} className="flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Export PDF
                   </Button>
                 </div>
-                {selectedJob.dataFlowDiagramContent ? (
-                  <div className="bg-muted p-4 rounded-md max-h-[600px] overflow-auto">
-                    <pre className="text-sm whitespace-pre-wrap font-mono">
-                      {selectedJob.dataFlowDiagramContent}
-                    </pre>
-                  </div>
+                {selectedJob.dataFlowDiagram ? (
+                  <>
+                    {selectedJob.dataFlowDiagram.description && (
+                      <p className="text-sm text-muted-foreground">{selectedJob.dataFlowDiagram.description}</p>
+                    )}
+                    <MermaidDiagram
+                      chart={dfdToMermaid(
+                        selectedJob.dataFlowDiagram.nodes,
+                        selectedJob.dataFlowDiagram.data_flows,
+                        selectedJob.dataFlowDiagram.trust_boundaries
+                      )}
+                      className="max-h-[500px]"
+                    />
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-medium">Nodes ({selectedJob.dataFlowDiagram.nodes.length})</h4>
+                      <div className="overflow-auto max-h-[300px] rounded-md border">
+                        <table className="w-full text-sm">
+                          <thead className="bg-muted sticky top-0">
+                            <tr>
+                              <th className="text-left p-2 font-medium">ID</th>
+                              <th className="text-left p-2 font-medium">Name</th>
+                              <th className="text-left p-2 font-medium">Type</th>
+                              <th className="text-left p-2 font-medium">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedJob.dataFlowDiagram.nodes.map(node => (
+                              <tr key={node.id} className="border-t">
+                                <td className="p-2 font-mono text-xs">{node.id}</td>
+                                <td className="p-2">{node.name}</td>
+                                <td className="p-2"><span className="px-2 py-0.5 rounded bg-muted text-xs">{node.type.replace(/_/g, ' ')}</span></td>
+                                <td className="p-2 text-muted-foreground">{node.description || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <h4 className="text-sm font-medium">Data Flows ({selectedJob.dataFlowDiagram.data_flows.length})</h4>
+                      <div className="overflow-auto max-h-[300px] rounded-md border">
+                        <table className="w-full text-sm">
+                          <thead className="bg-muted sticky top-0">
+                            <tr>
+                              <th className="text-left p-2 font-medium">ID</th>
+                              <th className="text-left p-2 font-medium">Source</th>
+                              <th className="text-left p-2 font-medium">Destination</th>
+                              <th className="text-left p-2 font-medium">Description</th>
+                              <th className="text-left p-2 font-medium">Protocol</th>
+                              <th className="text-left p-2 font-medium">Classification</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedJob.dataFlowDiagram.data_flows.map(flow => (
+                              <tr key={flow.id} className="border-t">
+                                <td className="p-2 font-mono text-xs">{flow.id}</td>
+                                <td className="p-2 font-mono text-xs">{flow.source}</td>
+                                <td className="p-2 font-mono text-xs">{flow.destination}</td>
+                                <td className="p-2">{flow.description}</td>
+                                <td className="p-2">{flow.protocol || '—'}</td>
+                                <td className="p-2">{flow.data_classification || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
                     <p>Data Flow Diagram not available.</p>
-              </div>
+                  </div>
                 )}
               </TabsContent>
-              
+
+              {/* Tab 2: Threat Model */}
               <TabsContent value="threat_model" className="space-y-4 mt-4">
                 <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => handleDownloadReport(selectedJob.id, 'threat_model')}
-                    className="flex items-center gap-2"
-                    disabled={!selectedJob.threatModelContent && !selectedJob.reportContent}
-                  >
-                    <Download className="h-4 w-4" />
-                    Download Threat Model
+                  <Button variant="outline" onClick={() => handlePdfExport('threats')} disabled={!selectedJob.threatModel} className="flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Export PDF
                   </Button>
                 </div>
-                {(selectedJob.threatModelContent || selectedJob.reportContent) ? (
-                  <div className="bg-muted p-4 rounded-md max-h-[600px] overflow-auto">
-                    <pre className="text-sm whitespace-pre-wrap font-mono">
-                      {selectedJob.threatModelContent || selectedJob.reportContent}
-                    </pre>
-                  </div>
+                {selectedJob.threatModel ? (
+                  <>
+                    {selectedJob.threatModel.executive_summary && (
+                      <div className="bg-muted/50 p-4 rounded-md">
+                        <h4 className="text-sm font-medium mb-2">Executive Summary</h4>
+                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedJob.threatModel.executive_summary}</p>
+                      </div>
+                    )}
+                    <div className="overflow-auto max-h-[600px] rounded-md border">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted sticky top-0">
+                          <tr>
+                            <th className="text-left p-2 font-medium">ID</th>
+                            <th className="text-left p-2 font-medium">Title</th>
+                            <th className="text-left p-2 font-medium">STRIDE</th>
+                            <th className="text-left p-2 font-medium">Severity</th>
+                            <th className="text-left p-2 font-medium">Likelihood</th>
+                            <th className="text-left p-2 font-medium">Impact</th>
+                            <th className="text-left p-2 font-medium">Mitigation</th>
+                            <th className="text-left p-2 font-medium">References</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedJob.threatModel.threats.map(threat => (
+                            <tr key={threat.id} className="border-t align-top">
+                              <td className="p-2 font-mono text-xs whitespace-nowrap">{threat.id}</td>
+                              <td className="p-2 font-medium">{threat.title}</td>
+                              <td className="p-2"><StrideBadge category={threat.stride_category} /></td>
+                              <td className="p-2"><SeverityBadge severity={threat.severity} /></td>
+                              <td className="p-2"><SeverityBadge severity={threat.likelihood} /></td>
+                              <td className="p-2 max-w-[200px]"><span className="line-clamp-3">{threat.impact}</span></td>
+                              <td className="p-2 max-w-[250px]"><span className="line-clamp-3">{threat.mitigation}</span></td>
+                              <td className="p-2">
+                                {threat.references?.map((ref, i) => (
+                                  <span key={i} className="inline-block px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded text-xs mr-1 mb-1">{ref}</span>
+                                ))}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
                     <p>Threat Model not available.</p>
                   </div>
                 )}
               </TabsContent>
-              
+
+              {/* Tab 3: Risk Registry */}
               <TabsContent value="risk_registry" className="space-y-4 mt-4">
                 <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => handleDownloadReport(selectedJob.id, 'risk_registry')}
-                    className="flex items-center gap-2"
-                    disabled={!selectedJob.riskRegistryContent}
-                  >
-                    <Download className="h-4 w-4" />
-                    Download Risk Registry
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={handleExcelExport}
-                    className="flex items-center gap-2"
-                    disabled={!selectedJob.riskRegistryContent}
-                  >
+                  <Button variant="outline" onClick={handleExcelExport} disabled={!selectedJob.riskRegistry?.risks?.length} className="flex items-center gap-2">
                     <FileSpreadsheet className="h-4 w-4" />
                     Export to Excel
                   </Button>
                 </div>
-                {selectedJob.riskRegistryContent ? (
-                  <div className="bg-muted p-4 rounded-md max-h-[600px] overflow-auto">
-                    <pre className="text-sm whitespace-pre-wrap font-mono">
-                      {selectedJob.riskRegistryContent}
-                    </pre>
-                  </div>
+                {selectedJob.riskRegistry ? (
+                  <>
+                    {selectedJob.riskRegistry.summary && (
+                      <div className="bg-muted/50 p-4 rounded-md">
+                        <h4 className="text-sm font-medium mb-2">Summary</h4>
+                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedJob.riskRegistry.summary}</p>
+                      </div>
+                    )}
+                    <div className="overflow-auto max-h-[600px] rounded-md border">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted sticky top-0">
+                          <tr>
+                            <th className="text-left p-2 font-medium">ID</th>
+                            <th className="text-left p-2 font-medium">Title</th>
+                            <th className="text-left p-2 font-medium">Category</th>
+                            <th className="text-left p-2 font-medium">Severity</th>
+                            <th className="text-left p-2 font-medium">Description</th>
+                            <th className="text-left p-2 font-medium">Remediation Plan</th>
+                            <th className="text-left p-2 font-medium">Effort</th>
+                            <th className="text-left p-2 font-medium">Timeline</th>
+                            <th className="text-left p-2 font-medium">Related Threats</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedJob.riskRegistry.risks.map(risk => (
+                            <tr key={risk.id} className="border-t align-top">
+                              <td className="p-2 font-mono text-xs whitespace-nowrap">{risk.id}</td>
+                              <td className="p-2 font-medium">{risk.title}</td>
+                              <td className="p-2">{risk.category}</td>
+                              <td className="p-2"><SeverityBadge severity={risk.severity} /></td>
+                              <td className="p-2 max-w-[200px]"><span className="line-clamp-3">{risk.description}</span></td>
+                              <td className="p-2 max-w-[250px]"><span className="line-clamp-3">{risk.remediation_plan}</span></td>
+                              <td className="p-2 whitespace-nowrap">{risk.effort_estimate || '—'}</td>
+                              <td className="p-2 whitespace-nowrap">{risk.timeline || '—'}</td>
+                              <td className="p-2">
+                                {risk.related_threats?.map((tid, i) => (
+                                  <span key={i} className="inline-block px-1.5 py-0.5 bg-orange-50 text-orange-700 rounded text-xs mr-1 mb-1">{tid}</span>
+                                ))}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
                     <p>Risk Registry not available.</p>
-                </div>
-              )}
+                  </div>
+                )}
               </TabsContent>
             </Tabs>
           </CardContent>

@@ -84,8 +84,11 @@ docker-compose ps
 - **Threat Modeling** - Perform threat modeling analysis with ZIP file upload support
   - Uses built-in `threat_modeler` role with YAML configuration
   - Upload repository as ZIP file for analysis
-  - View comprehensive threat model reports
-  - Export Risk Registry to Excel (CSV format)
+  - Structured JSON output with predefined schema (powered by appsec-agent v1.6+)
+  - Interactive Mermaid Data Flow Diagrams with trust boundaries
+  - Sortable threat tables with severity and STRIDE category badges
+  - Risk Registry with cross-referenced threat IDs
+  - Export to PDF (DFD and Threat Model), CSV (Risk Registry), or raw JSON
   - Real-time job status tracking
 - **Chat Interface** - Interactive chat with persistent conversation history
   - Uses `appsec-agent` CLI in interactive mode
@@ -118,8 +121,9 @@ docker-compose ps
 - **Automatic Migration** - Database schema updates automatically
 
 ### Export & Reporting
-- **Excel Export** - Export Risk Registry data to Excel-compatible CSV format
-- **Risk Registry Parser** - Intelligent parsing of markdown-formatted risk reports
+- **PDF Export** - Export Data Flow Diagrams (vector SVG) and Threat Models as PDF
+- **CSV Export** - Export Risk Registry data to Excel-compatible CSV format
+- **JSON Export** - Download full structured threat model report as JSON
 - **Date Formatting** - Timezone-aware date display throughout the application
 
 ## 📁 Project Structure
@@ -140,7 +144,8 @@ threat-model-ai/
 │   ├── components/      # React components
 │   ├── contexts/        # React contexts (AuthContext)
 │   ├── lib/             # API client and utilities
-│   ├── utils/           # Utility functions (date, risk parser)
+│   ├── types/           # TypeScript type definitions
+│   ├── utils/           # Utility functions (date, DFD converter)
 │   └── package.json
 ├── src/
 │   └── index.ts         # Main entry point (example code)
