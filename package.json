@@ -1,6 +1,6 @@
 {
   "name": "threat-model-ai",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "AI-powered threat modeling application built on top of appsec-agent library",
   "author": "Sam Li",
   "license": "MIT",
@@ -25,7 +25,7 @@
     "frontend:test": "cd frontend && npm test"
   },
   "dependencies": {
-    "appsec-agent": "^0.3.7",
+    "appsec-agent": "^2.1.6",
     "commander": "^11.1.0",
     "dotenv": "^16.3.1"
   },
