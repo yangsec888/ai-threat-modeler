@@ -5,6 +5,38 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-04-17
+
+### Added
+- **DFD “Wide view”** toolbar action: hides left rail, right details panel, and nodes/flows tables, then fits the diagram for maximum canvas space
+- **Desktop “Details” toggle** for the context panel (alongside **Rail** for the legend rail)
+- **Jest**: `useToast` queue cap tests; `DfdToolbar` tests for Wide view and Details controls
+
+### Changed
+- **Threat modeling layout**: main column uses full width (`max-w-none`) with responsive horizontal padding for wider DFD/report preview
+- **DFD canvas**: taller viewport (`min(80vh, 720px)`), higher React Flow `maxZoom` (4), slightly narrower side columns on large screens
+- **Toasts**: anchored **bottom-right**, compact sizing, `break-words`, scrollable stack (`max-h-[50vh]`), and at most **four** messages retained (oldest dropped)
+- **Playwright**: optional `PLAYWRIGHT_BASE_URL` to run E2E against an existing dev server without starting `dev:e2e`
+- **Root** and **frontend** package versions **1.4.0**
+
+## [1.3.0] - 2026-04-17
+
+### Added
+- **React Flow DFD canvas**: Interactive threat-aware diagram with pan/zoom, minimap, node search, type/severity filters, trust-boundary grouping, and a right-hand context panel for nodes/edges
+- **Export actions**: PNG and SVG download from the canvas, plus Copy Mermaid (string only; Mermaid runtime removed)
+- **Vector DFD in PDF**: DFD PDF export embeds the diagram as vector SVG (html-to-image → svg2pdf.js) when the DFD tab is active
+- **Playwright E2E** (`frontend/e2e/`) for DFD flows; scripts `e2e`, `e2e:ui`, `e2e:install`
+- **Tests**: Jest coverage for `dfdToReactFlow`, ELK `layoutDfd`, `dfdToMermaid`, `dfdDecorations`, and RTL tests for DFD toolbar/legend/context panel
+- **Backend contract tests** for structured `GET /api/threat-modeling/jobs/:id` payloads and null-safe parsing when report JSON is missing or invalid
+- **OpenAPI**: Schemas for `DataFlowDiagram`, `ThreatModel`, `RiskRegistry`, etc., and updated job-detail response (removed stale `*Content` string fields)
+
+### Changed
+- **Threat Modeling UI**: Mermaid diagram component removed in favor of `@xyflow/react` + `elkjs` auto-layout
+- **Frontend** package version **1.3.0**
+
+### Removed
+- **mermaid** npm dependency and `MermaidDiagram.tsx` (Mermaid graph rendering)
+
 ## [1.2.3] - 2026-02-28
 
 ### Changed

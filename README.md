@@ -85,7 +85,7 @@ docker-compose ps
   - Uses built-in `threat_modeler` role with YAML configuration
   - Upload repository as ZIP file for analysis
   - Structured JSON output with predefined schema (powered by appsec-agent v1.6+)
-  - Interactive Mermaid Data Flow Diagrams with trust boundaries
+  - Interactive threat-aware Data Flow Diagrams with pan/zoom, node search, type/severity filters, and trust boundary grouping (React Flow canvas)
   - Sortable threat tables with severity and STRIDE category badges
   - Risk Registry with cross-referenced threat IDs
   - Export to PDF (DFD and Threat Model), CSV (Risk Registry), or raw JSON
@@ -121,7 +121,7 @@ docker-compose ps
 - **Automatic Migration** - Database schema updates automatically
 
 ### Export & Reporting
-- **PDF Export** - Export Data Flow Diagrams (vector SVG) and Threat Models as PDF
+- **PDF Export** - Export Data Flow Diagrams with an **embedded vector SVG** of the diagram (via html-to-image + svg2pdf.js) plus existing tables; Threat Model PDFs unchanged
 - **CSV Export** - Export Risk Registry data to Excel-compatible CSV format
 - **JSON Export** - Download full structured threat model report as JSON
 - **Date Formatting** - Timezone-aware date display throughout the application
@@ -228,10 +228,16 @@ cd backend && npm test
 cd frontend && npm test
 ```
 
+**Run frontend DFD E2E (Chromium; starts Next on port 3333 via `dev:e2e`):**
+```bash
+cd frontend && npm run e2e:install   # once, installs Playwright browser
+cd frontend && npm run e2e
+```
+
 ### Test Coverage
 
 - **Backend**: Comprehensive test coverage for authentication, models, routes, and middleware
-- **Frontend**: Tests for API client, contexts, utilities, and components
+- **Frontend**: Tests for API client, contexts, utilities, components, DFD converters/layout, and optional Playwright E2E for the DFD tab (`npm run e2e`)
 - **CLI Integration**: Tests for `agent-run` CLI execution and error handling
 - **Total**: All tests passing ✅
 

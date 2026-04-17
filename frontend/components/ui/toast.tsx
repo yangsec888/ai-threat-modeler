@@ -54,10 +54,10 @@ const ToastComponent = ({ toast, onClose }: ToastProps) => {
 
   return (
     <div
-      className={`${styleClass} border rounded-lg shadow-lg p-4 min-w-[300px] max-w-[500px] flex items-start gap-3 animate-in slide-in-from-top-5`}
+      className={`${styleClass} border rounded-lg shadow-md p-3 max-w-[min(100vw-2rem,22rem)] flex items-start gap-2 animate-in slide-in-from-bottom-2`}
     >
-      <Icon className="h-5 w-5 flex-shrink-0 mt-0.5" />
-      <div className="flex-1 text-sm font-medium">{toast.message}</div>
+      <Icon className="h-4 w-4 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 text-xs sm:text-sm font-medium leading-snug break-words">{toast.message}</div>
       <Button
         variant="ghost"
         size="sm"
@@ -79,7 +79,7 @@ export function ToastContainer({ toasts, onClose }: ToastContainerProps) {
   if (toasts.length === 0) return null
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
+    <div className="fixed bottom-4 right-4 z-50 flex max-h-[50vh] flex-col-reverse gap-2 overflow-y-auto pointer-events-none [&>*]:pointer-events-auto">
       {toasts.map((toast) => (
         <ToastComponent key={toast.id} toast={toast} onClose={onClose} />
       ))}

@@ -723,19 +723,30 @@ paths:
                       - $ref: '#/components/schemas/ThreatModelingJob'
                       - type: object
                         properties:
-                          dataFlowDiagramContent:
+                          metadata:
+                            nullable: true
+                            allOf:
+                              - $ref: '#/components/schemas/ReportMetadata'
+                          dataFlowDiagram:
+                            nullable: true
+                            allOf:
+                              - $ref: '#/components/schemas/DataFlowDiagram'
+                          threatModel:
+                            nullable: true
+                            allOf:
+                              - $ref: '#/components/schemas/ThreatModel'
+                          riskRegistry:
+                            nullable: true
+                            allOf:
+                              - $ref: '#/components/schemas/RiskRegistry'
+                          recommendations:
+                            type: array
+                            nullable: true
+                            items:
+                              $ref: '#/components/schemas/Recommendation'
+                          conclusion:
                             type: string
                             nullable: true
-                          threatModelContent:
-                            type: string
-                            nullable: true
-                          riskRegistryContent:
-                            type: string
-                            nullable: true
-                          reportContent:
-                            type: string
-                            nullable: true
-                            description: Backward compatibility
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1118,6 +1129,270 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    DFDNode:
+      type: object
+      required:
+        - id
+        - name
+        - type
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum:
+            - external_entity
+            - process
+            - data_store
+        description:
+          type: string
+          nullable: true
+
+    DFDDataFlow:
+      type: object
+      required:
+        - id
+        - source
+        - destination
+        - description
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        destination:
+          type: string
+        description:
+          type: string
+        protocol:
+          type: string
+          nullable: true
+        data_classification:
+          type: string
+          nullable: true
+
+    DFDTrustBoundary:
+      type: object
+      required:
+        - id
+        - name
+        - nodes
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        nodes:
+          type: array
+          items:
+            type: string
+
+    DataFlowDiagram:
+      type: object
+      required:
+        - description
+        - nodes
+        - data_flows
+        - trust_boundaries
+      properties:
+        description:
+          type: string
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/DFDNode'
+        data_flows:
+          type: array
+          items:
+            $ref: '#/components/schemas/DFDDataFlow'
+        trust_boundaries:
+          type: array
+          items:
+            $ref: '#/components/schemas/DFDTrustBoundary'
+
+    Threat:
+      type: object
+      required:
+        - id
+        - title
+        - stride_category
+        - severity
+        - affected_components
+        - description
+        - impact
+        - likelihood
+        - mitigation
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        stride_category:
+          type: string
+          enum:
+            - Spoofing
+            - Tampering
+            - Repudiation
+            - Information Disclosure
+            - Denial of Service
+            - Elevation of Privilege
+        severity:
+          type: string
+          enum:
+            - CRITICAL
+            - HIGH
+            - MEDIUM
+            - LOW
+        affected_components:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        attack_vector:
+          type: string
+          nullable: true
+        impact:
+          type: string
+        likelihood:
+          type: string
+          enum:
+            - HIGH
+            - MEDIUM
+            - LOW
+        mitigation:
+          type: string
+        references:
+          type: array
+          nullable: true
+          items:
+            type: string
+
+    ThreatModel:
+      type: object
+      required:
+        - executive_summary
+        - threats
+      properties:
+        executive_summary:
+          type: string
+        threats:
+          type: array
+          items:
+            $ref: '#/components/schemas/Threat'
+
+    Risk:
+      type: object
+      required:
+        - id
+        - title
+        - category
+        - severity
+        - description
+        - remediation_plan
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        category:
+          type: string
+        stride_category:
+          type: string
+          nullable: true
+        severity:
+          type: string
+          enum:
+            - CRITICAL
+            - HIGH
+            - MEDIUM
+            - LOW
+        current_risk_score:
+          type: string
+          nullable: true
+        residual_risk_score:
+          type: string
+          nullable: true
+        description:
+          type: string
+        affected_components:
+          type: array
+          nullable: true
+          items:
+            type: string
+        business_impact:
+          type: string
+          nullable: true
+        remediation_plan:
+          type: string
+        effort_estimate:
+          type: string
+          nullable: true
+        cost_estimate:
+          type: string
+          nullable: true
+        timeline:
+          type: string
+          nullable: true
+        related_threats:
+          type: array
+          nullable: true
+          items:
+            type: string
+
+    RiskRegistry:
+      type: object
+      required:
+        - summary
+        - risks
+      properties:
+        summary:
+          type: string
+        risks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Risk'
+
+    ReportMetadata:
+      type: object
+      required:
+        - project_name
+        - scan_date
+        - methodology
+        - total_threats_identified
+        - total_risks_identified
+      properties:
+        project_name:
+          type: string
+        scan_date:
+          type: string
+        methodology:
+          type: string
+        total_threats_identified:
+          type: integer
+        total_risks_identified:
+          type: integer
+
+    Recommendation:
+      type: object
+      required:
+        - title
+        - description
+        - priority
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum:
+            - HIGH
+            - MEDIUM
+            - LOW
 
     ThreatModelingJob:
       type: object

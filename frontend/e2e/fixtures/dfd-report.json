@@ -1,0 +1,89 @@
+{
+  "status": "success",
+  "job": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "repoPath": "[UPLOADED] test-app.zip",
+    "query": "Threat model",
+    "status": "completed",
+    "errorMessage": null,
+    "repoName": "test-app",
+    "gitBranch": "main",
+    "gitCommit": "abc123",
+    "executionDuration": 120,
+    "apiCost": "$0.01",
+    "createdAt": "2026-04-17T10:00:00.000Z",
+    "updatedAt": "2026-04-17T10:05:00.000Z",
+    "completedAt": "2026-04-17T10:05:00.000Z",
+    "metadata": {
+      "project_name": "Test App",
+      "scan_date": "2026-04-17",
+      "methodology": "STRIDE",
+      "total_threats_identified": 2,
+      "total_risks_identified": 1
+    },
+    "dataFlowDiagram": {
+      "description": "Test DFD description for collapse and search. Docker and browser components exercise search and trust boundaries. Lorem ipsum dolor sit amet consectetur adipisicing elit. Quibusdam voluptatum expedita id repellat doloremque architecto nisi unde magni laborum distinctio. Additional padding ensures the description exceeds two hundred twenty characters for UI collapse tests.",
+      "nodes": [
+        { "id": "ee-1", "name": "Web Browser", "type": "external_entity", "description": "User agent" },
+        { "id": "proc-1", "name": "API Server", "type": "process", "description": "Backend" },
+        { "id": "ds-1", "name": "Database", "type": "data_store", "description": "SQLite" },
+        { "id": "proc-2", "name": "Worker", "type": "process", "description": "Background" },
+        { "id": "ee-2", "name": "External API", "type": "external_entity", "description": "Partner" },
+        { "id": "proc-3", "name": "Docker Runtime", "type": "process", "description": "Contains workloads" }
+      ],
+      "data_flows": [
+        { "id": "f1", "source": "ee-1", "destination": "proc-1", "description": "HTTPS requests", "protocol": "HTTPS", "data_classification": "public" },
+        { "id": "f2", "source": "proc-1", "destination": "ds-1", "description": "SQL queries", "protocol": "TCP", "data_classification": "PII" },
+        { "id": "f3", "source": "proc-1", "destination": "proc-2", "description": "Queue jobs", "protocol": "internal", "data_classification": "internal" },
+        { "id": "f4", "source": "proc-2", "destination": "ee-2", "description": "Webhook", "protocol": "HTTPS", "data_classification": "confidential" },
+        { "id": "f5", "source": "ee-2", "destination": "proc-1", "description": "Callbacks", "protocol": "HTTPS", "data_classification": "public" }
+      ],
+      "trust_boundaries": [
+        { "id": "tb-public", "name": "Public Internet", "nodes": ["ee-1", "ee-2"] },
+        { "id": "tb-app", "name": "Application Zone", "nodes": ["proc-1", "proc-2", "ds-1", "proc-3"] }
+      ]
+    },
+    "threatModel": {
+      "executive_summary": "Executive summary for tests.",
+      "threats": [
+        {
+          "id": "T-001",
+          "title": "SQL Injection",
+          "stride_category": "Tampering",
+          "severity": "HIGH",
+          "affected_components": ["proc-1", "ds-1"],
+          "description": "SQLi via input",
+          "impact": "Data loss",
+          "likelihood": "MEDIUM",
+          "mitigation": "Use parameterized queries"
+        },
+        {
+          "id": "T-002",
+          "title": "Browser XSS",
+          "stride_category": "Tampering",
+          "severity": "CRITICAL",
+          "affected_components": ["Web Browser"],
+          "description": "XSS",
+          "impact": "Session theft",
+          "likelihood": "HIGH",
+          "mitigation": "CSP"
+        }
+      ]
+    },
+    "riskRegistry": {
+      "summary": "Risks",
+      "risks": [
+        {
+          "id": "R-1",
+          "title": "Data breach",
+          "category": "Data",
+          "severity": "HIGH",
+          "description": "Risk description",
+          "remediation_plan": "Fix"
+        }
+      ]
+    },
+    "recommendations": [],
+    "conclusion": "Test conclusion."
+  }
+}

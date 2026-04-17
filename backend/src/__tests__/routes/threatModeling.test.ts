@@ -54,7 +54,6 @@ import request from 'supertest';
 import express from 'express';
 import { threatModelingRoutes } from '../../routes/threatModeling';
 import * as fs from 'fs';
-import * as path from 'path';
 
 // Mock ThreatModelingJobModel
 jest.mock('../../models/threatModelingJob', () => ({
@@ -125,24 +124,8 @@ jest.mock('fs', () => ({
   })),
 }));
 
-// Mock path module
-jest.mock('path', () => ({
-  join: jest.fn((...args) => args.join('/')),
-  resolve: jest.fn((...args) => args.join('/')),
-  basename: jest.fn((p: string) => {
-    const parts = p.split('/');
-    return parts[parts.length - 1] || p;
-  }),
-  dirname: jest.fn((p: string) => {
-    const parts = p.split('/');
-    parts.pop();
-    return parts.join('/') || '.';
-  }),
-  extname: jest.fn((p: string) => {
-    const match = p.match(/\.[^.]+$/);
-    return match ? match[0] : '';
-  }),
-}));
+// Use real path helpers (resolveReportPath needs isAbsolute/join semantics)
+jest.mock('path', () => jest.requireActual('path'));
 
 // Mock multer
 jest.mock('multer', () => {
@@ -504,7 +487,8 @@ describe('Threat Modeling Routes', () => {
       expect(response.body.job).toBeDefined();
       expect(response.body.job.id).toBe('job1');
       expect(response.body.job.status).toBe('completed');
-      expect(response.body.job.threatModelContent).toBeDefined();
+      expect(response.body.job.dataFlowDiagram).toBeNull();
+      expect(response.body.job.threatModel).toBeNull();
     });
 
     it('should return 403 if job belongs to different user', async () => {
@@ -548,6 +532,84 @@ describe('Threat Modeling Routes', () => {
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Job not found');
+    });
+
+    it('should return structured dataFlowDiagram, threatModel, metadata, and riskRegistry when report JSON parses', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const wrappedReport = require('../fixtures/dfd-wrapped-report.json') as {
+        threat_model_report: Record<string, unknown>;
+      };
+
+      const mockJob = {
+        id: 'job-dfd',
+        user_id: 1,
+        repo_path: '/path/to/repo',
+        query: 'Test query',
+        status: 'completed',
+        report_path: '/reports/job-dfd/report.json',
+        data_flow_diagram_path: '/reports/job-dfd/report.json',
+        threat_model_path: '/reports/job-dfd/report.json',
+        risk_registry_path: '/reports/job-dfd/report.json',
+        error_message: null,
+        repo_name: 'test-repo',
+        git_branch: 'main',
+        git_commit: 'abc123',
+        execution_duration: 120,
+        api_cost: '$1.50',
+        created_at: new Date('2024-01-01').toISOString(),
+        updated_at: new Date('2024-01-02').toISOString(),
+        completed_at: new Date('2024-01-02').toISOString(),
+      };
+
+      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
+      (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify(wrappedReport));
+
+      const response = await request(app).get('/api/threat-modeling/jobs/job-dfd');
+
+      expect(response.status).toBe(200);
+      expect(response.body.job.dataFlowDiagram).not.toBeNull();
+      expect(response.body.job.dataFlowDiagram.nodes.length).toBeGreaterThanOrEqual(2);
+      expect(response.body.job.dataFlowDiagram.data_flows.length).toBeGreaterThanOrEqual(1);
+      expect(response.body.job.dataFlowDiagram.trust_boundaries.length).toBeGreaterThanOrEqual(1);
+      expect(response.body.job.threatModel?.threats?.[0]?.affected_components).toContain('proc-1');
+      expect(response.body.job.metadata?.project_name).toBe('Test App');
+      expect(response.body.job.riskRegistry?.risks?.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it.each([
+      ['read fails', () => { throw new Error('ENOENT'); }],
+      ['non-JSON', () => '{ not valid json'],
+      ['empty threat_model_report', () => JSON.stringify({ threat_model_report: {} })],
+    ])('should return null structured sections when report file %s', async (_label, contentFactory) => {
+      const mockJob = {
+        id: 'job-bad',
+        user_id: 1,
+        repo_path: '/path/to/repo',
+        query: 'Test query',
+        status: 'completed',
+        report_path: '/reports/job-bad/report.json',
+        data_flow_diagram_path: '/reports/job-bad/report.json',
+        threat_model_path: '/reports/job-bad/report.json',
+        risk_registry_path: '/reports/job-bad/report.json',
+        error_message: null,
+        repo_name: 'test-repo',
+        git_branch: 'main',
+        git_commit: 'abc123',
+        execution_duration: 120,
+        api_cost: '$1.50',
+        created_at: new Date('2024-01-01').toISOString(),
+        updated_at: new Date('2024-01-02').toISOString(),
+        completed_at: new Date('2024-01-02').toISOString(),
+      };
+
+      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
+      (fs.readFileSync as jest.Mock).mockImplementation(contentFactory as () => string);
+
+      const response = await request(app).get('/api/threat-modeling/jobs/job-bad');
+
+      expect(response.status).toBe(200);
+      expect(response.body.job.dataFlowDiagram).toBeNull();
+      expect(response.body.job.threatModel).toBeNull();
     });
   });
 

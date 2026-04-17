@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,8 +20,9 @@ import { formatDateWithTimezone } from '@/utils/date'
 import { sanitizeErrorMessage } from '@/lib/security'
 import JSZip from 'jszip'
 import type { DataFlowDiagram, ThreatModel, RiskRegistry, ReportMetadata, Recommendation, Threat, Risk } from '@/types/threatModel'
-import { dfdToMermaid } from '@/utils/dfdToMermaid'
-import MermaidDiagram from '@/components/MermaidDiagram'
+import type { ThreatModelingJob } from '@/types/threatModelingJob'
+import { DfdTabContent } from '@/components/dfd/DfdTabContent'
+import type { DfdCanvasHandle } from '@/components/dfd/DfdCanvas'
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) {
@@ -40,29 +41,6 @@ function formatDuration(seconds: number): string {
     if (secs > 0) parts.push(`${secs}s`)
     return parts.join(' ')
   }
-}
-
-interface ThreatModelingJob {
-  id: string
-  repoPath: string
-  query: string | null
-  status: 'pending' | 'processing' | 'completed' | 'failed'
-  errorMessage: string | null
-  repoName?: string | null
-  gitBranch?: string | null
-  gitCommit?: string | null
-  executionDuration?: number | null
-  apiCost?: string | null
-  createdAt: string
-  updatedAt: string
-  completedAt: string | null
-  metadata?: ReportMetadata | null
-  dataFlowDiagram?: DataFlowDiagram | null
-  threatModel?: ThreatModel | null
-  riskRegistry?: RiskRegistry | null
-  recommendations?: Recommendation[] | null
-  conclusion?: string | null
-  owner?: string
 }
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -106,9 +84,26 @@ export function ThreatModeling() {
   const [uploading, setUploading] = useState(false)
   const [jobs, setJobs] = useState<ThreatModelingJob[]>([])
   const [selectedJob, setSelectedJob] = useState<ThreatModelingJob | null>(null)
+  const [reportTab, setReportTab] = useState('data_flow_diagram')
+  const [threatHighlightNodeId, setThreatHighlightNodeId] = useState<string | null>(null)
+  const dfdCanvasRef = useRef<DfdCanvasHandle | null>(null)
   const [pollingJobs, setPollingJobs] = useState<Set<string>>(new Set())
   const { toasts, success, error: showError, info, removeToast } = useToast()
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  const filteredThreats = useMemo(() => {
+    const threats = selectedJob?.threatModel?.threats
+    if (!threats) return []
+    if (!threatHighlightNodeId || !selectedJob?.dataFlowDiagram) return threats
+    const node = selectedJob.dataFlowDiagram.nodes.find((n) => n.id === threatHighlightNodeId)
+    return threats.filter((th) =>
+      th.affected_components.some(
+        (c) =>
+          c === threatHighlightNodeId ||
+          (node && c.trim().toLowerCase() === node.name.trim().toLowerCase())
+      )
+    )
+  }, [selectedJob, threatHighlightNodeId])
 
   // Load jobs on mount
   useEffect(() => {
@@ -354,6 +349,8 @@ export function ThreatModeling() {
         showError('Report content is not available. The file may not have been generated correctly.')
       }
       
+      setReportTab('data_flow_diagram')
+      setThreatHighlightNodeId(null)
       setSelectedJob(updatedJob)
     } catch (err: unknown) {
       console.error('Error loading report:', err)
@@ -428,6 +425,8 @@ export function ThreatModeling() {
       const doc = new jsPDF({ orientation: 'landscape' })
       const projectName = selectedJob.metadata?.project_name || selectedJob.repoPath
       const scanDate = selectedJob.metadata?.scan_date || ''
+      const pageW = doc.internal.pageSize.getWidth()
+      const pageH = doc.internal.pageSize.getHeight()
 
       doc.setFontSize(16)
       doc.text(`Threat Model Report - ${projectName}`, 14, 15)
@@ -443,6 +442,34 @@ export function ThreatModeling() {
         doc.text(descLines, 14, 39)
 
         let startY = 39 + descLines.length * 4 + 6
+
+        const exportEl = dfdCanvasRef.current?.getExportElement()
+        if (exportEl && reportTab === 'data_flow_diagram') {
+          try {
+            const { toSvg } = await import('html-to-image')
+            const { svg2pdf } = await import('svg2pdf.js') as typeof import('svg2pdf.js')
+            const svgString = await toSvg(exportEl, {
+              cacheBust: true,
+              backgroundColor: '#f8fafc',
+            })
+            const wrap = document.createElement('div')
+            wrap.innerHTML = svgString
+            const svgEl = wrap.querySelector('svg')
+            if (svgEl) {
+              const diagramW = pageW - 28
+              const diagramH = Math.min(pageH * 0.45, 160)
+              await svg2pdf(svgEl, doc, {
+                x: 14,
+                y: startY,
+                width: diagramW,
+                height: diagramH,
+              })
+              startY += diagramH + 10
+            }
+          } catch (svgErr) {
+            console.warn('DFD diagram SVG embed failed:', svgErr)
+          }
+        }
 
         autoTable(doc, {
           startY,
@@ -513,6 +540,8 @@ export function ThreatModeling() {
       // If the deleted job was being viewed, close the preview
       if (selectedJob && selectedJob.id === jobId) {
         setSelectedJob(null)
+        setThreatHighlightNodeId(null)
+        setReportTab('data_flow_diagram')
       }
       
       // Stop polling if it was an active job
@@ -776,7 +805,11 @@ export function ThreatModeling() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setSelectedJob(null)}
+                  onClick={() => {
+                    setSelectedJob(null)
+                    setThreatHighlightNodeId(null)
+                    setReportTab('data_flow_diagram')
+                  }}
                 >
                   Close
                 </Button>
@@ -784,7 +817,14 @@ export function ThreatModeling() {
             </div>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="data_flow_diagram" className="w-full">
+            <Tabs
+              value={reportTab}
+              onValueChange={(v) => {
+                setReportTab(v)
+                if (v !== 'threat_model') setThreatHighlightNodeId(null)
+              }}
+              className="w-full"
+            >
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="data_flow_diagram">Data Flow Diagram</TabsTrigger>
                 <TabsTrigger value="threat_model">
@@ -797,78 +837,19 @@ export function ThreatModeling() {
               
               {/* Tab 1: Data Flow Diagram */}
               <TabsContent value="data_flow_diagram" className="space-y-4 mt-4">
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => handlePdfExport('dfd')} disabled={!selectedJob.dataFlowDiagram} className="flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Export PDF
-                  </Button>
-                </div>
                 {selectedJob.dataFlowDiagram ? (
-                  <>
-                    {selectedJob.dataFlowDiagram.description && (
-                      <p className="text-sm text-muted-foreground">{selectedJob.dataFlowDiagram.description}</p>
-                    )}
-                    <MermaidDiagram
-                      chart={dfdToMermaid(
-                        selectedJob.dataFlowDiagram.nodes,
-                        selectedJob.dataFlowDiagram.data_flows,
-                        selectedJob.dataFlowDiagram.trust_boundaries
-                      )}
-                      className="max-h-[500px]"
-                    />
-                    <div className="space-y-3">
-                      <h4 className="text-sm font-medium">Nodes ({selectedJob.dataFlowDiagram.nodes.length})</h4>
-                      <div className="overflow-auto max-h-[300px] rounded-md border">
-                        <table className="w-full text-sm">
-                          <thead className="bg-muted sticky top-0">
-                            <tr>
-                              <th className="text-left p-2 font-medium">ID</th>
-                              <th className="text-left p-2 font-medium">Name</th>
-                              <th className="text-left p-2 font-medium">Type</th>
-                              <th className="text-left p-2 font-medium">Description</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {selectedJob.dataFlowDiagram.nodes.map(node => (
-                              <tr key={node.id} className="border-t">
-                                <td className="p-2 font-mono text-xs">{node.id}</td>
-                                <td className="p-2">{node.name}</td>
-                                <td className="p-2"><span className="px-2 py-0.5 rounded bg-muted text-xs">{node.type.replace(/_/g, ' ')}</span></td>
-                                <td className="p-2 text-muted-foreground">{node.description || '—'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <h4 className="text-sm font-medium">Data Flows ({selectedJob.dataFlowDiagram.data_flows.length})</h4>
-                      <div className="overflow-auto max-h-[300px] rounded-md border">
-                        <table className="w-full text-sm">
-                          <thead className="bg-muted sticky top-0">
-                            <tr>
-                              <th className="text-left p-2 font-medium">ID</th>
-                              <th className="text-left p-2 font-medium">Source</th>
-                              <th className="text-left p-2 font-medium">Destination</th>
-                              <th className="text-left p-2 font-medium">Description</th>
-                              <th className="text-left p-2 font-medium">Protocol</th>
-                              <th className="text-left p-2 font-medium">Classification</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {selectedJob.dataFlowDiagram.data_flows.map(flow => (
-                              <tr key={flow.id} className="border-t">
-                                <td className="p-2 font-mono text-xs">{flow.id}</td>
-                                <td className="p-2 font-mono text-xs">{flow.source}</td>
-                                <td className="p-2 font-mono text-xs">{flow.destination}</td>
-                                <td className="p-2">{flow.description}</td>
-                                <td className="p-2">{flow.protocol || '—'}</td>
-                                <td className="p-2">{flow.data_classification || '—'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </>
+                  <DfdTabContent
+                    job={{ ...selectedJob, dataFlowDiagram: selectedJob.dataFlowDiagram }}
+                    dfdTabActive={reportTab === 'data_flow_diagram'}
+                    canvasRef={dfdCanvasRef}
+                    onRequestDfdPdf={() => void handlePdfExport('dfd')}
+                    onOpenThreatsForComponent={(id) => {
+                      setThreatHighlightNodeId(id)
+                      setReportTab('threat_model')
+                    }}
+                    onToastSuccess={success}
+                    onToastError={showError}
+                  />
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
                     <p>Data Flow Diagram not available.</p>
@@ -886,6 +867,17 @@ export function ThreatModeling() {
                 </div>
                 {selectedJob.threatModel ? (
                   <>
+                    {threatHighlightNodeId && (
+                      <div className="rounded-md border border-blue-200 bg-blue-50/80 px-3 py-2 text-sm text-blue-900 flex items-center justify-between gap-2">
+                        <span>
+                          Showing threats for component{' '}
+                          <span className="font-mono">{threatHighlightNodeId}</span>
+                        </span>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setThreatHighlightNodeId(null)}>
+                          Clear filter
+                        </Button>
+                      </div>
+                    )}
                     {selectedJob.threatModel.executive_summary && (
                       <div className="bg-muted/50 p-4 rounded-md">
                         <h4 className="text-sm font-medium mb-2">Executive Summary</h4>
@@ -907,7 +899,7 @@ export function ThreatModeling() {
                           </tr>
                         </thead>
                         <tbody>
-                          {selectedJob.threatModel.threats.map(threat => (
+                          {filteredThreats.map(threat => (
                             <tr key={threat.id} className="border-t align-top">
                               <td className="p-2 font-mono text-xs whitespace-nowrap">{threat.id}</td>
                               <td className="p-2 font-medium">{threat.title}</td>

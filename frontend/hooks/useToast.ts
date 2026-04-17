@@ -7,6 +7,8 @@
 import { useState, useCallback } from 'react'
 import { Toast, ToastType } from '@/components/ui/toast'
 
+const MAX_TOASTS = 4
+
 export function useToast() {
   const [toasts, setToasts] = useState<Toast[]>([])
 
@@ -19,7 +21,7 @@ export function useToast() {
       duration: duration !== undefined ? duration : 5000,
     }
 
-    setToasts((prev) => [...prev, newToast])
+    setToasts((prev) => [...prev, newToast].slice(-MAX_TOASTS))
     return id
   }, [])
 

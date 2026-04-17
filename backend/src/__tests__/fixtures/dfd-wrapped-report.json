@@ -1,0 +1,55 @@
+{
+  "threat_model_report": {
+    "metadata": {
+      "project_name": "Test App",
+      "scan_date": "2026-04-17",
+      "methodology": "STRIDE",
+      "total_threats_identified": 2,
+      "total_risks_identified": 1
+    },
+    "data_flow_diagram": {
+      "description": "Test DFD",
+      "nodes": [
+        { "id": "ee-1", "name": "Web Browser", "type": "external_entity", "description": "User agent" },
+        { "id": "proc-1", "name": "API Server", "type": "process", "description": "Backend" }
+      ],
+      "data_flows": [
+        { "id": "f1", "source": "ee-1", "destination": "proc-1", "description": "HTTPS", "protocol": "HTTPS", "data_classification": "public" }
+      ],
+      "trust_boundaries": [
+        { "id": "tb-public", "name": "Public Internet", "nodes": ["ee-1"] }
+      ]
+    },
+    "threat_model": {
+      "executive_summary": "Summary",
+      "threats": [
+        {
+          "id": "T-001",
+          "title": "SQL Injection",
+          "stride_category": "Tampering",
+          "severity": "HIGH",
+          "affected_components": ["proc-1"],
+          "description": "SQLi",
+          "impact": "Data loss",
+          "likelihood": "MEDIUM",
+          "mitigation": "Fix"
+        }
+      ]
+    },
+    "risk_registry": {
+      "summary": "Risks",
+      "risks": [
+        {
+          "id": "R-1",
+          "title": "Data breach",
+          "category": "Data",
+          "severity": "HIGH",
+          "description": "d",
+          "remediation_plan": "Fix"
+        }
+      ]
+    },
+    "recommendations": [],
+    "conclusion": "Done."
+  }
+}

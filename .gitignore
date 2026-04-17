@@ -41,3 +41,7 @@ backend/threat-modeling-reports/*/
 # no code coverage reports
 coverage/
 
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+

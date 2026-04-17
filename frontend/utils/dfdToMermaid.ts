@@ -25,12 +25,15 @@ function renderNode(node: DFDNode): string {
   }
 }
 
+export type DfdMermaidDirection = 'LR' | 'TB'
+
 export function dfdToMermaid(
   nodes: DFDNode[],
   dataFlows: DFDDataFlow[],
-  trustBoundaries: DFDTrustBoundary[]
+  trustBoundaries: DFDTrustBoundary[],
+  direction: DfdMermaidDirection = 'LR'
 ): string {
-  const lines: string[] = ['flowchart LR']
+  const lines: string[] = [`flowchart ${direction}`]
 
   const boundaryNodes = new Set(trustBoundaries.flatMap(tb => tb.nodes))
 
