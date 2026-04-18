@@ -1,6 +1,6 @@
 {
-  "name": "threat-model-ai",
-  "version": "1.4.0",
+  "name": "ai-threat-modeler",
+  "version": "1.4.1",
   "description": "AI-powered threat modeling application built on top of appsec-agent library",
   "author": "Sam Li",
   "license": "MIT",

@@ -5,6 +5,17 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-04-18
+
+### Fixed
+- **Backend hardened against `@anthropic-ai/claude-agent-sdk` libc bug**: `appsec-agent` bumped from `^1.6.0` to `^2.1.7`, the only release that pins `@anthropic-ai/claude-agent-sdk` to exact `0.2.112` (the last pure-JavaScript release). Starting at `0.2.114`, the SDK ships per-platform native binaries whose resolver (`lJ()` in `sdk.mjs`) picks the `-musl` variant before the glibc one with no libc detection — on Debian-based images this fails at spawn time with a misleading `Claude Code native binary not found` error. Pre-2.1.7 `appsec-agent` releases (including the whole 1.x line) used `^0.2.74`, whose caret range included the buggy versions
+- **Dockerfile runtime-stage sanity check**: fails the build if a future transitive bump or lockfile regen silently pulls the SDK onto a native-binary release (>= 0.2.114). Asserts SDK is installed, `cli.js` is present, and no `claude-agent-sdk-<platform>` native variant dirs exist under `node_modules`. Catches regressions at build time instead of at the next prod spawn
+
+### Changed
+- **Backend SDK consolidation**: dropped dead direct `@anthropic-ai/claude-agent-sdk: ^0.2.39` dependency from `backend/package.json`. The backend never imports the SDK programmatically (it only spawns `appsec-agent`'s CLI as a child process), so the direct declaration was both unused and a drift hazard that let the backend lockfile resolve a different SDK version than `appsec-agent` had pinned. `appsec-agent@2.1.7` is now the single source of truth for the SDK pin across the stack
+- **Backend Dockerfile**: removed dead `RUN npm install -g @anthropic-ai/claude-code@2.0.10`. Nothing in the backend invokes the `claude` binary on `PATH` or sets `options.pathToClaudeCodeExecutable`; `appsec-agent` uses the SDK's bundled `cli.js`. The global install was dead weight on every image rebuild
+- **Root** package version **1.4.1**, **backend** package version **1.2.3**
+
 ## [1.4.0] - 2026-04-17
 
 ### Added
