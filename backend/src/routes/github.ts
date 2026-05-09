@@ -265,7 +265,117 @@ function isValidGitRef(ref: string): boolean {
   return true;
 }
 
-async function downloadAndProcessGitHubRepo(
+/**
+ * Fetch a GitHub zipball with manual redirect handling so the PAT survives
+ * the api.github.com → codeload.github.com hop.
+ *
+ * `fetch`'s default `redirect: 'follow'` strips the `Authorization` header on
+ * cross-origin redirects (per the spec). For private repositories the
+ * redirect target on `codeload.github.com` accepts the same Bearer token, so
+ * we re-attach it explicitly when the redirect stays inside `*.github.com`.
+ * For redirects out to signed `objects.githubusercontent.com` URLs we drop the
+ * Authorization header (the signed URL carries its own short-lived token in
+ * the query string and would either ignore our Bearer or reject it).
+ */
+async function fetchGitHubZipball(
+  owner: string,
+  repo: string,
+  ref: string,
+  token: string | null,
+): Promise<globalThis.Response> {
+  const initialUrl = `${GITHUB_API_BASE}/repos/${owner}/${repo}/zipball/${encodeURIComponent(ref)}`;
+  const initial = await fetch(initialUrl, {
+    method: 'GET',
+    headers: githubAuthHeaders(token),
+    redirect: 'manual',
+  });
+  if (initial.status < 300 || initial.status >= 400) {
+    return initial;
+  }
+  const location = initial.headers.get('location');
+  if (!location) {
+    return initial;
+  }
+
+  let preserveAuth = false;
+  try {
+    const targetHost = new URL(location).host;
+    preserveAuth = targetHost === 'github.com' || targetHost.endsWith('.github.com');
+  } catch {
+    preserveAuth = false;
+  }
+  const redirectHeaders = preserveAuth
+    ? githubAuthHeaders(token)
+    : { 'User-Agent': 'ai-threat-modeler' };
+
+  return fetch(location, {
+    method: 'GET',
+    headers: redirectHeaders,
+    redirect: 'follow',
+  });
+}
+
+/**
+ * Streams a fetch body to disk while enforcing a hard byte ceiling. Returns
+ * the number of bytes written on success. On size-cap or write error, the
+ * partial file is unlinked and the function rejects.
+ *
+ * Implementation note: we wait for the writable stream's `'close'` event
+ * rather than the `end(callback)` form because `end()` does NOT invoke its
+ * callback on a destroyed stream — so any error path that called `destroy()`
+ * before awaiting `end()` would hang the entire pipeline indefinitely (the
+ * exact bug that left v1.6.0–v1.6.2 size-capped imports stuck in `pending`).
+ * `'close'` fires for both `end()` and `destroy()` paths.
+ */
+async function streamBodyToDiskWithCap(
+  body: ReadableStream<Uint8Array>,
+  zipPath: string,
+  maxBytes: number,
+): Promise<number> {
+  const reader = body.getReader();
+  const writeStream = fs.createWriteStream(zipPath);
+  const closed = new Promise<void>((resolve) => {
+    writeStream.once('close', () => resolve());
+  });
+
+  let bytesWritten = 0;
+  let pendingError: Error | null = null;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesWritten += value.byteLength;
+      if (bytesWritten > maxBytes) {
+        pendingError = new Error(
+          `Repository archive exceeds the configured size cap (${maxBytes / (1024 * 1024)} MB). ` +
+            `Raise the cap in Settings → GitHub → Max archive size (MB) and re-import.`,
+        );
+        break;
+      }
+      if (!writeStream.write(Buffer.from(value))) {
+        await new Promise<void>((resolve) => writeStream.once('drain', () => resolve()));
+      }
+    }
+  } catch (err) {
+    pendingError = err instanceof Error ? err : new Error('Zipball stream error');
+  } finally {
+    if (pendingError) {
+      writeStream.destroy();
+    } else {
+      writeStream.end();
+    }
+    await closed;
+    try { reader.cancel().catch(() => undefined); } catch { /* ignore */ }
+  }
+
+  if (pendingError) {
+    try { fs.unlinkSync(zipPath); } catch { /* ignore */ }
+    throw pendingError;
+  }
+  return bytesWritten;
+}
+
+export async function downloadAndProcessGitHubRepo(
   jobId: string,
   owner: string,
   repo: string,
@@ -283,12 +393,7 @@ async function downloadAndProcessGitHubRepo(
   const maxBytes = SettingsModel.getGitHubMaxArchiveSizeMb() * 1024 * 1024;
 
   try {
-    const zipballUrl = `${GITHUB_API_BASE}/repos/${owner}/${repo}/zipball/${encodeURIComponent(ref)}`;
-    const ghResponse = await fetch(zipballUrl, {
-      method: 'GET',
-      headers: githubAuthHeaders(token),
-      redirect: 'follow',
-    });
+    const ghResponse = await fetchGitHubZipball(owner, repo, ref, token);
     const mapped = mapGitHubError(ghResponse, 'Zipball download');
     if (mapped) {
       throw new Error(mapped.message);
@@ -296,35 +401,18 @@ async function downloadAndProcessGitHubRepo(
 
     const contentLength = ghResponse.headers.get('content-length');
     if (contentLength && parseInt(contentLength, 10) > maxBytes) {
-      throw new Error(`Repository archive exceeds ${maxBytes / (1024 * 1024)} MB limit`);
+      throw new Error(
+        `Repository archive (${Math.round(parseInt(contentLength, 10) / (1024 * 1024))} MB) ` +
+          `exceeds the configured size cap (${maxBytes / (1024 * 1024)} MB). ` +
+          `Raise the cap in Settings → GitHub → Max archive size (MB) and re-import.`,
+      );
     }
 
     if (!ghResponse.body) {
       throw new Error('Zipball download returned no body');
     }
 
-    // Stream to disk while enforcing the size cap (handles servers that omit
-    // Content-Length, e.g. via chunked transfer encoding).
-    const reader = ghResponse.body.getReader();
-    const writeStream = fs.createWriteStream(zipPath);
-    let bytesWritten = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        bytesWritten += value.byteLength;
-        if (bytesWritten > maxBytes) {
-          writeStream.destroy();
-          try { fs.unlinkSync(zipPath); } catch { /* ignore */ }
-          throw new Error(`Repository archive exceeds ${maxBytes / (1024 * 1024)} MB limit`);
-        }
-        if (!writeStream.write(Buffer.from(value))) {
-          await new Promise<void>(resolve => writeStream.once('drain', () => resolve()));
-        }
-      }
-    } finally {
-      await new Promise<void>(resolve => writeStream.end(() => resolve()));
-    }
+    await streamBodyToDiskWithCap(ghResponse.body, zipPath, maxBytes);
 
     GitHubTokenModel.markUsed(userId);
 

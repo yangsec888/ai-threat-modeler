@@ -5,6 +5,18 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2026-05-09
+
+### Fixed
+- **GitHub import jobs hang in `pending` forever when the zipball exceeds the size cap.** When the streaming download tripped the configured size cap, `streamBodyToDiskWithCap`'s predecessor called `writeStream.destroy()` and then awaited `writeStream.end(callback)` in a `finally` block. Node's writable streams **do not invoke the `end()` callback on a destroyed stream**, so the await suspended forever — the throw never reached the outer `catch`, the job was never marked `failed`, no error message was written, and the polling UI showed `Pending` indefinitely. The download path is rewritten to wait for the `'close'` event (which fires for both clean `end()` and `destroy()` paths), so any size-cap, network, or write error now propagates to the existing failure path within milliseconds. Confirmed via a new Jest regression test (`downloadAndProcessGitHubRepo size-cap path`) that race-fails a 5s timeout if the bug regresses.
+- **Size-cap error message now tells the user how to fix it.** Instead of `"Repository archive exceeds 50 MB limit"`, the failed job's `error_message` (and the agent log line) now reads `"Repository archive (<N> MB) exceeds the configured size cap (50 MB). Raise the cap in Settings → GitHub → Max archive size (MB) and re-import."`. The same wording is used for both the upfront `Content-Length` short-circuit and the streaming overflow.
+- **PAT survives the `api.github.com` → `codeload.github.com` redirect** for private-repo imports. `fetch`'s default `redirect: 'follow'` strips the `Authorization` header on cross-origin redirects (per spec), which would 401 a private-repo zipball download. The new `fetchGitHubZipball` follows the 302 manually and re-attaches the Bearer token only when the redirect target is still on a `*.github.com` host; for off-domain signed URLs (e.g. `objects.githubusercontent.com`) the Authorization header is dropped so the URL's own short-lived token isn't shadowed.
+
+### Changed
+- **`backend/src/routes/github.ts`**: `downloadAndProcessGitHubRepo` is now exported (previously module-private) so the regression test can drive it directly without going through the fire-and-forget `POST /api/github/import` path. Streaming-with-size-cap is extracted into `streamBodyToDiskWithCap`, and zipball fetching is extracted into `fetchGitHubZipball` for the manual-redirect path. No public route shape changes.
+- **Tests**: backend Jest count **182 → 183** (+1 size-cap regression). All 15 backend test suites green.
+- **Root** package version **1.6.3**, **backend** package version **1.4.3**.
+
 ## [1.6.2] - 2026-05-09
 
 ### Fixed

@@ -64,9 +64,13 @@ jest.mock('../../middleware/permissions', () => ({
 
 import request from 'supertest';
 import express from 'express';
-import { githubRoutes } from '../../routes/github';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { githubRoutes, downloadAndProcessGitHubRepo } from '../../routes/github';
 import { GitHubTokenModel } from '../../models/githubToken';
 import { ThreatModelingJobModel } from '../../models/threatModelingJob';
+import { processThreatModelingJob } from '../../routes/threatModeling';
 
 const app = express();
 app.use(express.json());
@@ -315,5 +319,77 @@ describe('GitHub Routes', () => {
         expect.objectContaining({ sourceType: 'github', gitRef: 'main', gitRefType: 'branch' }),
       );
     });
+  });
+
+  // -----------------------------
+  // /import — pipeline: size-cap regression
+  //
+  // Pre-v1.6.3, when the streaming download tripped the size cap, we called
+  // `writeStream.destroy()` and then awaited `writeStream.end(callback)` in a
+  // `finally`. Node does NOT invoke that callback on a destroyed stream, so
+  // the function hung forever, the outer catch never ran, and the job sat in
+  // `pending` indefinitely with no `error_message`. This regression test pins
+  // the "doesn't hang, marks job failed" behavior to the size-cap path.
+  // -----------------------------
+  describe('downloadAndProcessGitHubRepo size-cap path', () => {
+    let originalCwd: string;
+    let tmpDir: string;
+
+    beforeEach(() => {
+      originalCwd = process.cwd();
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-import-test-'));
+      process.chdir(tmpDir);
+    });
+
+    afterEach(() => {
+      process.chdir(originalCwd);
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+
+    it('marks the job failed (does not hang) when the zipball exceeds the size cap', async () => {
+      const overCapBytes = (50 + 1) * 1024 * 1024; // 51 MB > 50 MB cap
+      const oneChunk = new Uint8Array(overCapBytes);
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(oneChunk);
+          controller.close();
+        },
+      });
+      // Manual-redirect path: first hop is a 200 directly (no redirect),
+      // so the function streams the body straight away.
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        body,
+      } as any);
+
+      const jobId = 'job-size-cap';
+
+      // Hard guard: if the bug regresses, this never resolves. Race against a
+      // generous timeout so the suite fails loudly instead of timing out at
+      // the Jest level.
+      await Promise.race([
+        downloadAndProcessGitHubRepo(jobId, 'o', 'r', 'main', null, 42),
+        new Promise<never>((_resolve, reject) =>
+          setTimeout(() => reject(new Error('downloadAndProcessGitHubRepo hung past 5s — size-cap finally regression')), 5000),
+        ),
+      ]);
+
+      expect(ThreatModelingJobModel.updateStatus).toHaveBeenCalledTimes(1);
+      const call = (ThreatModelingJobModel.updateStatus as jest.Mock).mock.calls[0];
+      expect(call[0]).toBe(jobId);
+      expect(call[1]).toBe('failed');
+      expect(call[3]).toMatch(/size cap/i);
+      expect(call[3]).toMatch(/Settings/);
+
+      // The pipeline must NOT have moved on to extract / agent run.
+      expect(processThreatModelingJob).not.toHaveBeenCalled();
+      expect(GitHubTokenModel.markUsed).not.toHaveBeenCalled();
+
+      // The partial zip should have been cleaned up by streamBodyToDiskWithCap.
+      const zipPath = path.join(tmpDir, 'uploads', 'threat-modeling', `github_o_r_${jobId}.zip`);
+      expect(fs.existsSync(zipPath)).toBe(false);
+    }, 10000);
   });
 });
