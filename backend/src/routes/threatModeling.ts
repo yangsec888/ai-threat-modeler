@@ -144,7 +144,7 @@ function findAgentRunPath(): string {
 }
 
 // Helper function to extract ZIP file to a directory
-function extractZip(zipPath: string, extractTo: string): Promise<void> {
+export function extractZip(zipPath: string, extractTo: string): Promise<void> {
   return new Promise((resolve, reject) => {
     yauzl.open(zipPath, { lazyEntries: true }, (err: Error | null, zipfile: yauzl.ZipFile | undefined) => {
       if (err) {
@@ -294,7 +294,7 @@ function detectRepoMetadata(repoDir: string, zipFileName?: string | null): { rep
  * 5. Move reports to threat-modeling-reports/{jobId}/
  * 6. Clean up work_dir and uploads
  */
-async function processThreatModelingJob(jobId: string, repoPath: string, query: string, uploadedZipPath?: string, extractedDir?: string, zipFileName?: string) {
+export async function processThreatModelingJob(jobId: string, repoPath: string, query: string, uploadedZipPath?: string, extractedDir?: string, zipFileName?: string) {
   // Define directories - use unique subdirectory per job for thread safety
   const workDirBase = path.join(process.cwd(), 'work_dir');
   const workDir = path.join(workDirBase, jobId); // Unique directory per job
@@ -1012,6 +1012,10 @@ router.post('/', authenticateToken, requireJobScheduling, upload.single('reposit
         repoName: job.repo_name,
         gitBranch: job.git_branch,
         gitCommit: job.git_commit,
+        sourceType: job.source_type ?? 'upload',
+        sourceUrl: job.source_url,
+        gitRef: job.git_ref,
+        gitRefType: job.git_ref_type,
         executionDuration: job.execution_duration,
         apiCost: job.api_cost,
         createdAt: job.created_at
@@ -1065,6 +1069,10 @@ router.get('/jobs', authenticateToken, (req: AuthRequest, res: Response) => {
           repoName: job.repo_name,
           gitBranch: job.git_branch,
           gitCommit: job.git_commit,
+          sourceType: job.source_type ?? 'upload',
+          sourceUrl: job.source_url,
+          gitRef: job.git_ref,
+          gitRefType: job.git_ref_type,
           executionDuration: job.execution_duration,
           apiCost: job.api_cost,
           createdAt: job.created_at,
@@ -1091,6 +1099,10 @@ router.get('/jobs', authenticateToken, (req: AuthRequest, res: Response) => {
           repoName: job.repo_name,
           gitBranch: job.git_branch,
           gitCommit: job.git_commit,
+          sourceType: job.source_type ?? 'upload',
+          sourceUrl: job.source_url,
+          gitRef: job.git_ref,
+          gitRefType: job.git_ref_type,
           executionDuration: job.execution_duration,
           apiCost: job.api_cost,
           createdAt: job.created_at,
@@ -1188,6 +1200,10 @@ router.get('/jobs/:id', authenticateToken, (req: AuthRequest, res: Response) => 
         repoName: job.repo_name,
         gitBranch: job.git_branch,
         gitCommit: job.git_commit,
+        sourceType: job.source_type ?? 'upload',
+        sourceUrl: job.source_url,
+        gitRef: job.git_ref,
+        gitRefType: job.git_ref_type,
         executionDuration: job.execution_duration,
         apiCost: job.api_cost,
         createdAt: job.created_at,

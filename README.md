@@ -11,7 +11,11 @@ Or [📹 watch on the file page](https://github.com/yangsec888/ai-threat-modeler
 ## 🚀 Quick Start
 
 ```bash
-# Build and start all services
+# 1. Set required secrets (production-only fail-closed)
+cp .env.example .env
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+
+# 2. Build and start all services
 docker-compose up -d --build
 ```
 
@@ -20,6 +24,34 @@ Then:
 2. Log in with default credentials: `admin` / `admin`
 3. Navigate to **Settings** and configure your Anthropic API credentials
 4. Change the default admin password
+5. (Optional) Add a GitHub Personal Access Token in **Settings → GitHub** to import private repositories
+
+> **Production note (SEC-003):** the backend refuses to boot in
+> `NODE_ENV=production` without `JWT_SECRET` (it throws on startup in
+> `middleware/auth.ts`). Generate a strong value with `openssl rand -hex 32`
+> and supply it via your `.env` file or your secret manager. Compose
+> subcommands that don't start a container (`down`, `ps`, `logs`) still work
+> when the variable is unset.
+
+## 🐙 Import from GitHub
+
+You can run a threat model directly against a GitHub repository, no local
+checkout required.
+
+1. **Public repo** — go to **Threat Modeling → Import from GitHub**, paste the
+   repo URL (`https://github.com/owner/repo`), click **Look up**, choose a
+   branch / tag / commit, and click **Import & Create Job**. The backend
+   downloads the GitHub zipball, extracts it under `backend/uploads/`, runs
+   the analysis pipeline, and removes the source code when finished.
+2. **Private repo** — first add a GitHub Personal Access Token under
+   **Settings → GitHub** (`repo` scope for private, `public_repo` for public
+   only). The token is encrypted at rest with AES-256-GCM and is **never
+   returned through any API**. The same flow then works for private repos.
+
+Safety limits are enforced server-side: archives are streamed to disk with a
+size cap (default 50 MB, configurable in **Settings → GitHub Import Limits**),
+and `gitRef` values are validated against shell metacharacters before any
+download begins.
 
 ## 🐳 Docker Compose
 
@@ -81,9 +113,12 @@ docker-compose ps
 ## ✨ Features
 
 ### Web Dashboard
-- **Threat Modeling** - Perform threat modeling analysis with ZIP file upload support
+- **Threat Modeling** - Perform threat modeling analysis with ZIP upload **or** GitHub import
   - Uses built-in `threat_modeler` role with YAML configuration
-  - Upload repository as ZIP file for analysis
+  - Two source paths via tabbed UI:
+    - **Upload directory** - bundle a local repository as a ZIP for analysis
+    - **Import from GitHub** - paste a `https://github.com/owner/repo` URL, pick a branch / tag / commit, and the backend downloads the zipball directly
+  - Public repos work out of the box; private repos use a per-user encrypted Personal Access Token configured under **Settings → GitHub**
   - Structured JSON output with predefined schema (powered by appsec-agent v1.6+)
   - Interactive threat-aware Data Flow Diagrams with pan/zoom, node search, type/severity filters, and trust boundary grouping (React Flow canvas)
   - Sortable threat tables with severity and STRIDE category badges

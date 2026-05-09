@@ -4,8 +4,15 @@
  * Author: Sam Li
  */
 
-import db, { ThreatModelingJob } from '../db/database';
+import db, { ThreatModelingJob, ThreatModelingJobSourceType, ThreatModelingJobGitRefType } from '../db/database';
 import { v4 as uuidv4 } from 'uuid';
+
+export interface ThreatModelingJobSourceMeta {
+  sourceType?: ThreatModelingJobSourceType | null;
+  sourceUrl?: string | null;
+  gitRef?: string | null;
+  gitRefType?: ThreatModelingJobGitRefType | null;
+}
 
 export class ThreatModelingJobModel {
   static create(
@@ -14,16 +21,33 @@ export class ThreatModelingJobModel {
     query?: string,
     repoName?: string | null,
     gitBranch?: string | null,
-    gitCommit?: string | null
+    gitCommit?: string | null,
+    sourceMeta?: ThreatModelingJobSourceMeta
   ): ThreatModelingJob {
     const jobId = uuidv4();
     const stmt = db.prepare(`
-      INSERT INTO threat_modeling_jobs (id, user_id, repo_path, query, status, repo_name, git_branch, git_commit)
-      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
+      INSERT INTO threat_modeling_jobs (
+        id, user_id, repo_path, query, status,
+        repo_name, git_branch, git_commit,
+        source_type, source_url, git_ref, git_ref_type
+      )
+      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
     `);
-    
-    stmt.run(jobId, userId, repoPath, query || null, repoName || null, gitBranch || null, gitCommit || null);
-    
+
+    stmt.run(
+      jobId,
+      userId,
+      repoPath,
+      query || null,
+      repoName || null,
+      gitBranch || null,
+      gitCommit || null,
+      sourceMeta?.sourceType ?? 'upload',
+      sourceMeta?.sourceUrl ?? null,
+      sourceMeta?.gitRef ?? null,
+      sourceMeta?.gitRefType ?? null,
+    );
+
     return this.findById(jobId);
   }
 

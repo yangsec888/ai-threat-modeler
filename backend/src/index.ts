@@ -17,13 +17,19 @@ import { chatRoutes } from './routes/chat';
 import { authRoutes } from './routes/auth';
 import { userRoutes } from './routes/users';
 import { settingsRoutes } from './routes/settings';
+import { githubRoutes } from './routes/github';
 import { initializeDefaultAdmin } from './init/defaultUser';
+import { runEncryptionKdfMigration } from './init/encryptionKdfMigration';
 import { cleanupOrphanedUploads } from './utils/cleanupOrphanedUploads';
 import logger, { morganStream } from './utils/logger';
 import './db/database'; // Initialize database
 
 // Load environment variables
 dotenv.config();
+
+// Re-encrypt any legacy 100k-iteration ciphertext with the new 310k KDF.
+// Idempotent: runs once per install and short-circuits on subsequent boots.
+runEncryptionKdfMigration();
 
 // Initialize default admin user
 initializeDefaultAdmin();
@@ -86,6 +92,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/github', githubRoutes);
 app.use('/api/threat-modeling', threatModelingRoutes);
 app.use('/api/chat', chatRoutes);
 

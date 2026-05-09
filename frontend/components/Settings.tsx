@@ -1,6 +1,6 @@
 /**
  * Settings Component for AI Threat Modeler Dashboard
- * 
+ *
  * Author: Sam Li
  */
 
@@ -16,14 +16,24 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { getCommonTimezones } from '@/utils/date'
 import { updateConfig, getConfig } from '@/config'
+import { CheckCircle2, KeyRound, Github, ShieldCheck } from 'lucide-react'
+
+interface GitHubTokenStatus {
+  exists: boolean
+  name: string | null
+  createdAt: string | null
+  updatedAt: string | null
+  lastUsedAt: string | null
+}
 
 export function Settings() {
   const { user, isAuthenticated } = useAuth()
   const { toasts, success, error: showError, removeToast } = useToast()
-  const [encryptionKey, setEncryptionKey] = useState('')
+  const [encryptionKeyConfigured, setEncryptionKeyConfigured] = useState(false)
   const [anthropicApiKey, setAnthropicApiKey] = useState('')
   const [anthropicBaseUrl, setAnthropicBaseUrl] = useState('')
   const [claudeCodeMaxOutputTokens, setClaudeCodeMaxOutputTokens] = useState<number | null>(32000)
+  const [githubMaxArchiveSizeMb, setGithubMaxArchiveSizeMb] = useState<number>(50)
   const [timezone, setTimezone] = useState('UTC')
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
@@ -32,11 +42,16 @@ export function Settings() {
   const [newEncryptionKey, setNewEncryptionKey] = useState<string | null>(null)
   const [validating, setValidating] = useState(false)
 
+  // GitHub PAT state
+  const [githubTokenStatus, setGithubTokenStatus] = useState<GitHubTokenStatus | null>(null)
+  const [githubTokenInput, setGithubTokenInput] = useState('')
+  const [githubTokenName, setGithubTokenName] = useState('')
+  const [savingGithubToken, setSavingGithubToken] = useState(false)
+  const [testingGithubToken, setTestingGithubToken] = useState(false)
+
   useEffect(() => {
-    // Load settings from backend if user is Admin
     const loadSettings = async () => {
       if (!isAuthenticated || user?.role !== 'Admin') {
-        // For non-admin users, load from localStorage (backward compatibility)
         const currentConfig = getConfig()
         setAnthropicApiKey(currentConfig.anthropic.apiKey)
         setAnthropicBaseUrl(currentConfig.anthropic.baseUrl)
@@ -49,23 +64,26 @@ export function Settings() {
         setLoading(true)
         const response = await api.getSettings()
         const settings = response.settings
-        
-        setEncryptionKey(settings.encryption_key || '')
+
+        setEncryptionKeyConfigured(!!settings.encryption_key_configured)
         setAnthropicBaseUrl(settings.anthropic_base_url || 'https://api.anthropic.com')
         setClaudeCodeMaxOutputTokens(settings.claude_code_max_output_tokens ?? 32000)
-        // API key is encrypted, so we don't show it
+        setGithubMaxArchiveSizeMb(settings.github_max_archive_size_mb ?? 50)
         setAnthropicApiKey('')
-        
-        // Also load timezone from localStorage (client-side only)
+
         const currentConfig = getConfig()
         setTimezone(currentConfig.timezone || 'UTC')
+
+        try {
+          const tokenRes = await api.getGitHubTokenStatus()
+          setGithubTokenStatus(tokenRes.token ?? null)
+        } catch (err) {
+          console.warn('Failed to load GitHub token status:', err)
+        }
       } catch (err: unknown) {
         console.error('Failed to load settings:', err)
-        if (err instanceof Error) {
-          setError(err.message)
-        } else {
-          setError('Failed to load settings')
-        }
+        if (err instanceof Error) setError(err.message)
+        else setError('Failed to load settings')
       } finally {
         setLoading(false)
       }
@@ -77,19 +95,15 @@ export function Settings() {
   const handleSave = async () => {
     try {
       setError('')
-      
+
       if (user?.role === 'Admin') {
-        // Save to backend database
         const updates: {
-          encryption_key?: string
           anthropic_api_key?: string
           anthropic_base_url?: string
           claude_code_max_output_tokens?: number | null
+          github_max_archive_size_mb?: number
         } = {}
-        
-        if (encryptionKey && encryptionKey.trim().length > 0) {
-          updates.encryption_key = encryptionKey
-        }
+
         if (anthropicApiKey && anthropicApiKey.trim().length > 0) {
           updates.anthropic_api_key = anthropicApiKey
         }
@@ -99,15 +113,10 @@ export function Settings() {
         if (claudeCodeMaxOutputTokens !== undefined && claudeCodeMaxOutputTokens !== null) {
           updates.claude_code_max_output_tokens = claudeCodeMaxOutputTokens
         }
-        
-        console.log('💾 Frontend sending settings update:', {
-          hasEncryptionKey: !!updates.encryption_key,
-          hasApiKey: !!updates.anthropic_api_key,
-          apiKeyLength: updates.anthropic_api_key?.length || 0,
-          hasBaseUrl: !!updates.anthropic_base_url,
-        })
-        
-        // Validate API key if it's being updated
+        if (typeof githubMaxArchiveSizeMb === 'number' && githubMaxArchiveSizeMb > 0) {
+          updates.github_max_archive_size_mb = githubMaxArchiveSizeMb
+        }
+
         if (updates.anthropic_api_key) {
           setValidating(true)
           try {
@@ -115,102 +124,126 @@ export function Settings() {
               updates.anthropic_api_key,
               updates.anthropic_base_url || anthropicBaseUrl
             )
-            
             if (validationResult.valid) {
-              // Show success toast that doesn't auto-close (duration: 0)
-              success(validationResult.message || '✅ API key is valid and working correctly', 0)
+              success(validationResult.message || 'API key is valid and working correctly', 0)
             } else {
-              // Show error toast that doesn't auto-close (duration: 0)
-              showError(validationResult.error || '❌ API key validation failed', 0)
+              showError(validationResult.error || 'API key validation failed', 0)
             }
           } catch (validationErr) {
-            // Show error toast that doesn't auto-close
             const errorMsg = validationErr instanceof Error ? validationErr.message : 'Failed to validate API key'
-            showError(`❌ API key validation error: ${errorMsg}`, 0)
+            showError(`API key validation error: ${errorMsg}`, 0)
           } finally {
             setValidating(false)
           }
         }
-        
+
         await api.updateSettings(updates)
         setSaved(true)
         setTimeout(() => setSaved(false), 3000)
-        
-        // Reload settings to get updated values
+
         const response = await api.getSettings()
         const settings = response.settings
-        setEncryptionKey(settings.encryption_key || '')
+        setEncryptionKeyConfigured(!!settings.encryption_key_configured)
         setAnthropicBaseUrl(settings.anthropic_base_url || 'https://api.anthropic.com')
         setClaudeCodeMaxOutputTokens(settings.claude_code_max_output_tokens ?? 32000)
-        setAnthropicApiKey('') // Clear the input since it's encrypted
+        setGithubMaxArchiveSizeMb(settings.github_max_archive_size_mb ?? 50)
+        setAnthropicApiKey('')
       } else {
-        // For non-admin users, save to localStorage (backward compatibility)
         updateConfig({
-          anthropic: {
-            apiKey: anthropicApiKey,
-            baseUrl: anthropicBaseUrl,
-          },
+          anthropic: { apiKey: anthropicApiKey, baseUrl: anthropicBaseUrl },
           timezone: timezone,
         })
         setSaved(true)
         setTimeout(() => setSaved(false), 3000)
       }
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message)
-      } else {
-        setError('Failed to save configuration')
-      }
+      if (err instanceof Error) setError(err.message)
+      else setError('Failed to save configuration')
     }
   }
 
   const handleRegenerateEncryptionKey = async () => {
     if (!window.confirm(
-      'Are you sure you want to regenerate the encryption key?\n\n' +
-      'This will:\n' +
-      '• Generate a new random encryption key\n' +
-      '• Re-encrypt the API key with the new key (if configured)\n' +
-      '• Display the new key for you to save\n\n' +
-      '⚠️ WARNING: If you lose the new encryption key, you will not be able to decrypt the API key!\n\n' +
-      'Do you want to continue?'
+      'Regenerate the encryption key? The new key is shown to you ONCE for backup. ' +
+      'Existing encrypted secrets are re-encrypted automatically.'
     )) {
       return
     }
-
     try {
       setRegenerating(true)
       setError('')
       setNewEncryptionKey(null)
-      
       const response = await api.regenerateEncryptionKey()
       const newKey = response.encryption_key
-      
       setNewEncryptionKey(newKey)
-      setEncryptionKey(newKey)
+      setEncryptionKeyConfigured(true)
       setSaved(true)
       setTimeout(() => setSaved(false), 5000)
-      
-      // Clear the new key display after 30 seconds for security
-      setTimeout(() => {
-        setNewEncryptionKey(null)
-      }, 30000)
+      setTimeout(() => setNewEncryptionKey(null), 30000)
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message)
-      } else {
-        setError('Failed to regenerate encryption key')
-      }
+      if (err instanceof Error) setError(err.message)
+      else setError('Failed to regenerate encryption key')
     } finally {
       setRegenerating(false)
     }
   }
 
+  const handleSaveGithubToken = async () => {
+    if (!githubTokenInput.trim()) {
+      showError('Enter a GitHub PAT')
+      return
+    }
+    setSavingGithubToken(true)
+    try {
+      const res = await api.setGitHubToken(githubTokenInput.trim(), githubTokenName.trim() || undefined)
+      setGithubTokenStatus(res.token ?? null)
+      setGithubTokenInput('')
+      setGithubTokenName('')
+      success(`GitHub PAT saved${res.githubLogin ? ` for ${res.githubLogin}` : ''}`)
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Failed to save GitHub PAT')
+    } finally {
+      setSavingGithubToken(false)
+    }
+  }
+
+  const handleDeleteGithubToken = async () => {
+    if (!window.confirm('Delete your stored GitHub PAT? You will need to re-enter it to access private repos.')) {
+      return
+    }
+    try {
+      await api.deleteGitHubToken()
+      setGithubTokenStatus({ exists: false, name: null, createdAt: null, updatedAt: null, lastUsedAt: null })
+      success('GitHub PAT deleted')
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Failed to delete GitHub PAT')
+    }
+  }
+
+  const handleTestGithubToken = async () => {
+    if (!githubTokenInput.trim()) {
+      showError('Enter a token to test')
+      return
+    }
+    setTestingGithubToken(true)
+    try {
+      const res = await api.validateGitHubToken(githubTokenInput.trim())
+      if (res.valid) {
+        success(`Token is valid${res.login ? ` (login: ${res.login})` : ''}`)
+      } else {
+        showError(res.error || 'Token validation failed')
+      }
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Failed to validate token')
+    } finally {
+      setTestingGithubToken(false)
+    }
+  }
+
   const handleReset = () => {
-    // Reset to default values from environment
-    const defaultTimezone = typeof Intl !== 'undefined' && Intl.DateTimeFormat 
-      ? Intl.DateTimeFormat().resolvedOptions().timeZone 
-      : 'UTC';
-    
+    const defaultTimezone = typeof Intl !== 'undefined' && Intl.DateTimeFormat
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone
+      : 'UTC'
     const defaultConfig = {
       anthropic: {
         apiKey: process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || '',
@@ -221,15 +254,11 @@ export function Settings() {
     setAnthropicApiKey(defaultConfig.anthropic.apiKey)
     setAnthropicBaseUrl(defaultConfig.anthropic.baseUrl)
     setTimezone(defaultConfig.timezone)
-    
-    if (user?.role !== 'Admin') {
-      updateConfig(defaultConfig)
-    }
+    if (user?.role !== 'Admin') updateConfig(defaultConfig)
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
   }
 
-  // Show access denied for non-admin users
   if (isAuthenticated && user?.role !== 'Admin') {
     return (
       <div className="container mx-auto max-w-4xl p-8">
@@ -242,7 +271,7 @@ export function Settings() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              System settings (encryption key, API keys) are only accessible to administrators.
+              System settings (encryption status, API keys, GitHub PAT) are only accessible to administrators.
               Your personal display settings (timezone) can be configured below.
             </p>
           </CardContent>
@@ -264,12 +293,12 @@ export function Settings() {
   }
 
   return (
-    <div className="container mx-auto max-w-4xl p-8">
+    <div className="container mx-auto max-w-4xl p-8 space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>Settings</CardTitle>
           <CardDescription>
-            Configure application settings. Changes are saved to your browser's local storage.
+            Configure application settings.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -281,61 +310,64 @@ export function Settings() {
 
           {saved && (
             <div className="p-3 text-sm text-green-600 bg-green-50 rounded-md">
-              ✅ Configuration saved successfully!
+              Configuration saved successfully.
             </div>
           )}
 
           <div className="space-y-4">
             <div>
-              <h3 className="text-lg font-semibold mb-4">Encryption Configuration</h3>
-              
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label htmlFor="encryption-key" className="text-sm font-medium">
-                      Encryption Key
-                    </label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleRegenerateEncryptionKey}
-                      disabled={regenerating || loading}
-                    >
-                      {regenerating ? 'Regenerating...' : '🔄 Regenerate Key'}
-                    </Button>
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5" /> Encryption
+              </h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm">
+                    {encryptionKeyConfigured ? (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-800"
+                        data-testid="encryption-status-configured"
+                      >
+                        <CheckCircle2 className="h-3 w-3" />
+                        Encryption: configured
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-xs text-yellow-800">
+                        Encryption: not configured
+                      </span>
+                    )}
                   </div>
-                  <Input
-                    id="encryption-key"
-                    type="password"
-                    value={encryptionKey}
-                    onChange={(e) => setEncryptionKey(e.target.value)}
-                    placeholder="Enter encryption key (minimum 32 characters)"
-                  />
-                  {newEncryptionKey && (
-                    <div className="p-3 text-sm bg-yellow-50 border border-yellow-200 rounded-md">
-                      <p className="font-semibold text-yellow-800 mb-2">⚠️ New Encryption Key Generated:</p>
-                      <code className="block p-2 bg-white border border-yellow-300 rounded text-xs break-all font-mono">
-                        {newEncryptionKey}
-                      </code>
-                      <p className="mt-2 text-yellow-700 text-xs">
-                        <strong>Important:</strong> Save this key securely! It will be hidden in 30 seconds. 
-                        If you lose it, you cannot decrypt the API key.
-                      </p>
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Encryption key used to encrypt/decrypt sensitive data. Must be at least 32 characters.
-                    <strong className="text-destructive"> Warning:</strong> Changing this will re-encrypt the API key.
-                    Click "Regenerate Key" to automatically generate a new secure key.
-                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRegenerateEncryptionKey}
+                    disabled={regenerating || loading}
+                  >
+                    {regenerating ? 'Regenerating...' : 'Regenerate Key'}
+                  </Button>
                 </div>
+                {newEncryptionKey && (
+                  <div className="p-3 text-sm bg-yellow-50 border border-yellow-200 rounded-md">
+                    <p className="font-semibold text-yellow-800 mb-2">New encryption key (shown once):</p>
+                    <code
+                      data-testid="new-encryption-key-display"
+                      className="block p-2 bg-white border border-yellow-300 rounded text-xs break-all font-mono"
+                    >
+                      {newEncryptionKey}
+                    </code>
+                    <p className="mt-2 text-yellow-700 text-xs">
+                      Save this key in your secret manager. It will be hidden in 30 seconds.
+                    </p>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  The encryption key is stored server-side and is never exposed via the API. Use Regenerate to rotate it; existing secrets are re-encrypted automatically.
+                </p>
               </div>
             </div>
 
             <div>
               <h3 className="text-lg font-semibold mb-4">Anthropic API Configuration</h3>
-              
               <div className="space-y-4">
                 <div className="space-y-2">
                   <label htmlFor="anthropic-api-key" className="text-sm font-medium">
@@ -349,7 +381,7 @@ export function Settings() {
                     placeholder="Enter your Anthropic API key (will be encrypted)"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Your API key is encrypted and stored in the database. Leave empty to keep current value.
+                    Encrypted at rest. Leave empty to keep current value.
                   </p>
                 </div>
 
@@ -364,9 +396,6 @@ export function Settings() {
                     onChange={(e) => setAnthropicBaseUrl(e.target.value)}
                     placeholder="https://api.anthropic.com"
                   />
-                  <p className="text-xs text-muted-foreground">
-                    The base URL for the Anthropic API. Default: https://api.anthropic.com
-                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -385,18 +414,12 @@ export function Settings() {
                     }}
                     placeholder="32000"
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Maximum number of output tokens for Claude Code responses. Default: 32000. 
-                    Set to null or leave empty to use default. Range: 1-1000000.
-                    This prevents "response exceeded the 32000 output token maximum" errors.
-                  </p>
                 </div>
               </div>
             </div>
 
             <div>
               <h3 className="text-lg font-semibold mb-4">Display Settings</h3>
-              
               <div className="space-y-4">
                 <div className="space-y-2">
                   <label htmlFor="timezone" className="text-sm font-medium">
@@ -414,9 +437,6 @@ export function Settings() {
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-muted-foreground">
-                    Timezone used for displaying dates and times throughout the application.
-                  </p>
                 </div>
               </div>
             </div>
@@ -430,18 +450,97 @@ export function Settings() {
               Reset to Defaults
             </Button>
           </div>
+        </CardContent>
+      </Card>
 
-          <div className="pt-4 border-t">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Github className="h-5 w-5" /> GitHub
+          </CardTitle>
+          <CardDescription>
+            Personal Access Token for importing private repositories. Encrypted at rest.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {githubTokenStatus?.exists ? (
+            <div className="flex items-center justify-between gap-2 rounded-md border bg-emerald-50 p-3">
+              <div className="text-sm">
+                <p className="font-medium inline-flex items-center gap-2">
+                  <KeyRound className="h-4 w-4" />
+                  PAT configured{githubTokenStatus.name ? ` (${githubTokenStatus.name})` : ''}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Saved {githubTokenStatus.createdAt}
+                  {githubTokenStatus.lastUsedAt ? ` • Last used ${githubTokenStatus.lastUsedAt}` : ' • Never used'}
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={handleDeleteGithubToken}>
+                Remove
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No PAT configured — public repos only.</p>
+          )}
+          <div className="space-y-2">
+            <label htmlFor="github-token-name" className="text-sm font-medium">Token name (optional)</label>
+            <Input
+              id="github-token-name"
+              type="text"
+              value={githubTokenName}
+              onChange={(e) => setGithubTokenName(e.target.value)}
+              placeholder="e.g. ai-threat-modeler scanner"
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="github-token" className="text-sm font-medium">Personal Access Token</label>
+            <Input
+              id="github-token"
+              type="password"
+              value={githubTokenInput}
+              onChange={(e) => setGithubTokenInput(e.target.value)}
+              placeholder="ghp_..."
+            />
             <p className="text-xs text-muted-foreground">
-              <strong>Note:</strong> System settings (encryption key, API keys) are stored in the database and encrypted.
-              Display settings (timezone) are stored in your browser's local storage.
+              Required scopes: <code>repo</code> (private) or <code>public_repo</code>.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={handleSaveGithubToken} disabled={savingGithubToken}>
+              {savingGithubToken ? 'Saving...' : 'Save PAT'}
+            </Button>
+            <Button variant="outline" onClick={handleTestGithubToken} disabled={testingGithubToken}>
+              {testingGithubToken ? 'Testing...' : 'Test connection'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>GitHub Import Limits</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            <label htmlFor="github-max-archive" className="text-sm font-medium">
+              Max archive size (MB)
+            </label>
+            <Input
+              id="github-max-archive"
+              type="number"
+              min="1"
+              max="5000"
+              value={githubMaxArchiveSizeMb}
+              onChange={(e) => setGithubMaxArchiveSizeMb(parseInt(e.target.value || '0', 10) || 0)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Reject GitHub zipballs larger than this. Default 50 MB.
             </p>
           </div>
         </CardContent>
       </Card>
-      
+
       <ToastContainer toasts={toasts} onClose={removeToast} />
     </div>
   )
 }
-

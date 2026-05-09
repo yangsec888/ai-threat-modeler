@@ -5,6 +5,39 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-05-09
+
+### Added
+- **GitHub-source threat modeling**: a new "Import from GitHub" tab in the Threat Modeling UI. Users paste a GitHub URL (`https://github.com/owner/repo`), pick a branch / tag / commit, and the backend downloads the GitHub zipball, extracts it, and runs the existing analysis pipeline — no local checkout required. The job list now shows GitHub-sourced jobs with a clickable repo link, a `Branch:` / `Tag:` / `Commit:` ref badge, and a GitHub source pill
+- **Per-user GitHub Personal Access Token (PAT) management** under **Settings → GitHub**. Set, replace (ON CONFLICT upsert), or remove the PAT; "Test connection" validates against `GET /user` and surfaces the resolved login + scopes. PATs are AES-256-GCM encrypted at rest using the install's encryption key, are never returned through any API, and are validated against GitHub before being persisted. `last_used_at` is reset to `NULL` on replace
+- **Backend GitHub routes** (`backend/src/routes/github.ts`):
+  - `GET/POST/DELETE /api/github/token` and `POST /api/github/token/validate`
+  - `POST /api/github/check-repo` — repo metadata, branches, and tags (best-effort with or without PAT)
+  - `POST /api/github/import` — creates a `threat_modeling_jobs` row with `source_type='github'`, streams the zipball to disk while enforcing the size cap, then hands off to `processThreatModelingJob`
+  - Friendly GitHub error mapping (401/403/404/rate limit -> 401/403/429), stripped from a leaking-credentials shape
+  - Strict input validation (`gitRefType` allow-list, `gitRef` shell-metacharacter guard, `repoUrl` parse)
+  - Audit logs on token set/delete/validate and import start/failure
+- **Schema**: `github_tokens` table; `threat_modeling_jobs` columns `source_type`, `source_url`, `git_ref`, `git_ref_type`; `settings` columns `github_max_archive_size_mb`, `encryption_kdf_version`, `anthropic_api_key_legacy_bak`
+- **Test coverage**: 59 new backend Jest tests (URL parser, token model, github routes, KDF migration, encryption hardening, JWT fail-closed, settings new shape) and new frontend Jest + Playwright suites (`GitHubImport.test.tsx`, `Settings.test.tsx`, `ThreatModelingTabs.test.tsx`, `e2e/github-import.spec.ts`, `e2e/github-token.spec.ts`)
+
+### Security
+- **SEC-003 — `JWT_SECRET` fails closed in production**: `backend/src/middleware/auth.ts` now refuses to boot when `NODE_ENV=production` and `JWT_SECRET` is unset. Dev/test still falls back to a non-secret default. `docker-compose.yml` declares `JWT_SECRET=${JWT_SECRET:?…}` so missing-env errors surface at compose time, not at first request
+- **SEC-004 — PBKDF2 iteration count bumped to 310,000** (OWASP 2023). Existing 100k-iteration ciphertext is migrated transparently on next boot via `runEncryptionKdfMigration`, which decrypts under the legacy KDF, re-encrypts under the new KDF, preserves the legacy ciphertext in `settings.anthropic_api_key_legacy_bak` for recovery, and bumps `encryption_kdf_version` from 1 → 2 only after every row succeeds. Idempotent on re-run
+- **SEC-009 — encryption key is never exposed via the API**:
+  - `GET /api/settings` now returns `encryption_key_configured: boolean` instead of the raw key
+  - `PUT /api/settings` rejects any payload containing `encryption_key` (rotation moves to the dedicated regenerate endpoint, which is server-controlled)
+  - `SettingsModel.getEncryptionKey()` is added as the only internal accessor for code that needs to encrypt/decrypt
+- **`Settings` UI** drops the editable encryption-key input and shows an "Encryption: configured" badge instead. Token plaintext is never persisted in `github_tokens` (verified by a model-level test that asserts the at-rest column never contains `ghp_`)
+- **GitHub import safety**: archive size cap (default 50 MB, configurable), streaming download with hard byte ceiling for chunked-encoding responses, and best-effort cleanup of `uploads/github_*.zip` and `extracted-*` dirs on failure
+
+### Changed
+- `ThreatModelingJobModel.create()` now accepts an optional `sourceMeta` argument; the existing upload route call is unchanged (defaults to `source_type='upload'`)
+- `routes/threatModeling.ts` exports `extractZip` and `processThreatModelingJob` so the GitHub route can reuse the same pipeline (and same cleanup semantics) as ZIP uploads
+- **Frontend type**: `ThreatModelingJob` gains `sourceType`, `sourceUrl`, `gitRef`, `gitRefType`
+- **`docker-compose.yml`**: backend container now passes `JWT_SECRET` from the host environment via `${JWT_SECRET}`. Originally I gated this with `${JWT_SECRET:?…}` so an unset secret would fail the compose parse, but that breaks `docker-compose down`/`ps`/`logs` too — the fail-closed behavior now lives entirely in `backend/src/middleware/auth.ts` (which throws on boot in production), so non-`up` compose subcommands keep working when the variable is unset
+- **`.env.example`** added with `JWT_SECRET` instructions and the recommended `openssl rand -hex 32` generator
+- **Root** package version **1.6.0**, **frontend** package version **1.6.0**, **backend** package version **1.4.0**
+
 ## [1.4.2] - 2026-05-09
 
 ### Changed

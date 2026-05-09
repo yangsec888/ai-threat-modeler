@@ -8,7 +8,28 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { UserModel } from '../models/user';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+/**
+ * SEC-003: JWT_SECRET must be supplied via environment variable in production.
+ * In dev/test we fall back to a fixed string so local workflows and the test
+ * suite (which sets process.env.JWT_SECRET in __tests__/setup.ts) keep working.
+ *
+ * Generate a production secret with: openssl rand -hex 32
+ */
+function resolveJwtSecret(): string {
+  const fromEnv = process.env.JWT_SECRET;
+  if (fromEnv && fromEnv.length > 0) {
+    return fromEnv;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'JWT_SECRET environment variable is required in production. ' +
+      'Generate one with: openssl rand -hex 32'
+    );
+  }
+  return 'dev-only-secret-do-not-use-in-production';
+}
+
+const JWT_SECRET = resolveJwtSecret();
 
 import { UserRole } from '../db/database';
 

@@ -50,25 +50,28 @@ app.use('/api/settings', settingsRoutes);
 describe('Settings Routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Default mock for get
     (SettingsModel.get as jest.Mock).mockReturnValue({
       encryption_key: 'test-encryption-key-12345678901234567890',
+      encryption_key_configured: true,
       anthropic_api_key: null,
       anthropic_base_url: 'https://api.anthropic.com',
       claude_code_max_output_tokens: null,
+      github_max_archive_size_mb: 50,
       updated_at: '2024-01-01T00:00:00Z',
     });
   });
 
   describe('GET /api/settings', () => {
-    it('should return settings for Admin user', async () => {
-      // Mock settings with encrypted API key
+    it('should return settings for Admin user without exposing encryption key', async () => {
       (SettingsModel.get as jest.Mock).mockReturnValue({
         encryption_key: 'test-encryption-key-12345678901234567890',
-        anthropic_api_key: 'encrypted-key-value', // This will be shown as ***ENCRYPTED***
+        encryption_key_configured: true,
+        anthropic_api_key: 'encrypted-key-value',
         anthropic_base_url: 'https://api.anthropic.com',
         claude_code_max_output_tokens: 50000,
+        github_max_archive_size_mb: 50,
         updated_at: '2024-01-01T00:00:00Z',
       });
 
@@ -78,20 +81,22 @@ describe('Settings Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('success');
       expect(response.body.settings).toBeDefined();
-      expect(response.body.settings.encryption_key).toBeDefined();
-      // API key should be masked if it exists
+      // SEC-009: encryption_key MUST NOT appear in API responses
+      expect(response.body.settings.encryption_key).toBeUndefined();
+      expect(response.body.settings.encryption_key_configured).toBe(true);
       expect(response.body.settings.anthropic_api_key).toBe('***ENCRYPTED***');
-      // Claude Code max output tokens should be returned
       expect(response.body.settings.claude_code_max_output_tokens).toBe(50000);
+      expect(response.body.settings.github_max_archive_size_mb).toBe(50);
     });
 
     it('should return null for API key if not configured', async () => {
-      // Mock settings without API key
       (SettingsModel.get as jest.Mock).mockReturnValue({
         encryption_key: 'test-encryption-key-12345678901234567890',
+        encryption_key_configured: true,
         anthropic_api_key: null,
         anthropic_base_url: 'https://api.anthropic.com',
         claude_code_max_output_tokens: null,
+        github_max_archive_size_mb: 50,
         updated_at: '2024-01-01T00:00:00Z',
       });
 
@@ -101,6 +106,7 @@ describe('Settings Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body.settings.anthropic_api_key).toBeNull();
       expect(response.body.settings.claude_code_max_output_tokens).toBeNull();
+      expect(response.body.settings.encryption_key).toBeUndefined();
     });
 
     it('should return 403 for non-Admin user', async () => {
@@ -121,37 +127,26 @@ describe('Settings Routes', () => {
   });
 
   describe('PUT /api/settings', () => {
-    it('should update encryption key', async () => {
-      const newEncryptionKey = 'new-encryption-key-12345678901234567890';
-      (SettingsModel.update as jest.Mock).mockReturnValue({
-        encryption_key: newEncryptionKey,
-        anthropic_api_key: null,
-        anthropic_base_url: 'https://api.anthropic.com',
-        claude_code_max_output_tokens: null,
-        updated_at: '2024-01-02T00:00:00Z',
-      });
-
+    it('SEC-009: should reject any encryption_key in PUT body', async () => {
       const response = await request(app)
         .put('/api/settings')
         .send({
-          encryption_key: newEncryptionKey,
+          encryption_key: 'a'.repeat(64),
         });
 
-      expect(response.status).toBe(200);
-      expect(response.body.status).toBe('success');
-      expect(SettingsModel.update).toHaveBeenCalledWith({
-        encryption_key: newEncryptionKey,
-        anthropic_api_key: undefined,
-        anthropic_base_url: undefined,
-      });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/encryption_key cannot be set/i);
+      expect(SettingsModel.update).not.toHaveBeenCalled();
     });
 
     it('should update API key', async () => {
       (SettingsModel.update as jest.Mock).mockReturnValue({
         encryption_key: 'test-encryption-key-12345678901234567890',
+        encryption_key_configured: true,
         anthropic_api_key: null,
         anthropic_base_url: 'https://api.anthropic.com',
         claude_code_max_output_tokens: null,
+        github_max_archive_size_mb: 50,
         updated_at: '2024-01-02T00:00:00Z',
       });
 
@@ -163,19 +158,20 @@ describe('Settings Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('success');
-      expect(SettingsModel.update).toHaveBeenCalledWith({
-        encryption_key: undefined,
+      expect(response.body.settings.encryption_key).toBeUndefined();
+      expect(SettingsModel.update).toHaveBeenCalledWith(expect.objectContaining({
         anthropic_api_key: 'sk-test-api-key-123',
-        anthropic_base_url: undefined,
-      });
+      }));
     });
 
     it('should update base URL', async () => {
       (SettingsModel.update as jest.Mock).mockReturnValue({
         encryption_key: 'test-encryption-key-12345678901234567890',
+        encryption_key_configured: true,
         anthropic_api_key: null,
         anthropic_base_url: 'https://custom-api.anthropic.com',
         claude_code_max_output_tokens: null,
+        github_max_archive_size_mb: 50,
         updated_at: '2024-01-02T00:00:00Z',
       });
 
@@ -186,11 +182,9 @@ describe('Settings Routes', () => {
         });
 
       expect(response.status).toBe(200);
-      expect(SettingsModel.update).toHaveBeenCalledWith({
-        encryption_key: undefined,
-        anthropic_api_key: undefined,
+      expect(SettingsModel.update).toHaveBeenCalledWith(expect.objectContaining({
         anthropic_base_url: 'https://custom-api.anthropic.com',
-      });
+      }));
     });
 
     it('should reject empty API key', async () => {
@@ -204,15 +198,29 @@ describe('Settings Routes', () => {
       expect(response.body.error).toContain('non-empty string');
     });
 
-    it('should reject encryption key shorter than 32 characters', async () => {
+    it('should accept github_max_archive_size_mb in valid range', async () => {
+      (SettingsModel.update as jest.Mock).mockReturnValue({
+        encryption_key: 'test-encryption-key-12345678901234567890',
+        encryption_key_configured: true,
+        anthropic_api_key: null,
+        anthropic_base_url: 'https://api.anthropic.com',
+        claude_code_max_output_tokens: null,
+        github_max_archive_size_mb: 100,
+        updated_at: '2024-01-02T00:00:00Z',
+      });
       const response = await request(app)
         .put('/api/settings')
-        .send({
-          encryption_key: 'short',
-        });
+        .send({ github_max_archive_size_mb: 100 });
+      expect(response.status).toBe(200);
+      expect(response.body.settings.github_max_archive_size_mb).toBe(100);
+    });
 
+    it('should reject github_max_archive_size_mb out of range', async () => {
+      const response = await request(app)
+        .put('/api/settings')
+        .send({ github_max_archive_size_mb: 999999 });
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('32 characters');
+      expect(response.body.error).toMatch(/github_max_archive_size_mb/);
     });
 
     it('should return 403 for non-Admin user', async () => {
@@ -373,9 +381,11 @@ describe('Settings Routes', () => {
     it('should update claude_code_max_output_tokens', async () => {
       (SettingsModel.update as jest.Mock).mockReturnValue({
         encryption_key: 'test-encryption-key-12345678901234567890',
+        encryption_key_configured: true,
         anthropic_api_key: null,
         anthropic_base_url: 'https://api.anthropic.com',
         claude_code_max_output_tokens: 50000,
+        github_max_archive_size_mb: 50,
         updated_at: '2024-01-02T00:00:00Z',
       });
 
@@ -388,12 +398,9 @@ describe('Settings Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('success');
       expect(response.body.settings.claude_code_max_output_tokens).toBe(50000);
-      expect(SettingsModel.update).toHaveBeenCalledWith({
-        encryption_key: undefined,
-        anthropic_api_key: undefined,
-        anthropic_base_url: undefined,
+      expect(SettingsModel.update).toHaveBeenCalledWith(expect.objectContaining({
         claude_code_max_output_tokens: 50000,
-      });
+      }));
     });
 
     it('should reject claude_code_max_output_tokens less than 1', async () => {
@@ -421,9 +428,11 @@ describe('Settings Routes', () => {
     it('should accept null for claude_code_max_output_tokens', async () => {
       (SettingsModel.update as jest.Mock).mockReturnValue({
         encryption_key: 'test-encryption-key-12345678901234567890',
+        encryption_key_configured: true,
         anthropic_api_key: null,
         anthropic_base_url: 'https://api.anthropic.com',
         claude_code_max_output_tokens: null,
+        github_max_archive_size_mb: 50,
         updated_at: '2024-01-02T00:00:00Z',
       });
 
@@ -436,20 +445,19 @@ describe('Settings Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('success');
       expect(response.body.settings.claude_code_max_output_tokens).toBeNull();
-      expect(SettingsModel.update).toHaveBeenCalledWith({
-        encryption_key: undefined,
-        anthropic_api_key: undefined,
-        anthropic_base_url: undefined,
+      expect(SettingsModel.update).toHaveBeenCalledWith(expect.objectContaining({
         claude_code_max_output_tokens: null,
-      });
+      }));
     });
 
     it('should return claude_code_max_output_tokens in GET response', async () => {
       (SettingsModel.get as jest.Mock).mockReturnValue({
         encryption_key: 'test-encryption-key-12345678901234567890',
+        encryption_key_configured: true,
         anthropic_api_key: null,
         anthropic_base_url: 'https://api.anthropic.com',
         claude_code_max_output_tokens: 75000,
+        github_max_archive_size_mb: 50,
         updated_at: '2024-01-01T00:00:00Z',
       });
 

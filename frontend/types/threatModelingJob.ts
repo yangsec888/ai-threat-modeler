@@ -4,6 +4,9 @@
 
 import type { DataFlowDiagram, ReportMetadata, RiskRegistry, ThreatModel, Recommendation } from '@/types/threatModel'
 
+export type ThreatModelingJobSourceType = 'upload' | 'github'
+export type ThreatModelingJobGitRefType = 'branch' | 'tag' | 'commit'
+
 export interface ThreatModelingJob {
   id: string
   repoPath: string
@@ -13,6 +16,10 @@ export interface ThreatModelingJob {
   repoName?: string | null
   gitBranch?: string | null
   gitCommit?: string | null
+  sourceType?: ThreatModelingJobSourceType | null
+  sourceUrl?: string | null
+  gitRef?: string | null
+  gitRefType?: ThreatModelingJobGitRefType | null
   executionDuration?: number | null
   apiCost?: string | null
   createdAt: string

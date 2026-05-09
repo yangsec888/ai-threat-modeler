@@ -142,6 +142,22 @@ try {
     db.exec(`ALTER TABLE threat_modeling_jobs ADD COLUMN git_commit TEXT`);
     logger.info('✅ Added git_commit column to threat_modeling_jobs table');
   }
+  if (!columnNames.includes('source_type')) {
+    db.exec(`ALTER TABLE threat_modeling_jobs ADD COLUMN source_type TEXT DEFAULT 'upload'`);
+    logger.info('✅ Added source_type column to threat_modeling_jobs table');
+  }
+  if (!columnNames.includes('source_url')) {
+    db.exec(`ALTER TABLE threat_modeling_jobs ADD COLUMN source_url TEXT`);
+    logger.info('✅ Added source_url column to threat_modeling_jobs table');
+  }
+  if (!columnNames.includes('git_ref')) {
+    db.exec(`ALTER TABLE threat_modeling_jobs ADD COLUMN git_ref TEXT`);
+    logger.info('✅ Added git_ref column to threat_modeling_jobs table');
+  }
+  if (!columnNames.includes('git_ref_type')) {
+    db.exec(`ALTER TABLE threat_modeling_jobs ADD COLUMN git_ref_type TEXT`);
+    logger.info('✅ Added git_ref_type column to threat_modeling_jobs table');
+  }
 } catch (error: unknown) {
   const message = error instanceof Error ? error.message : 'Unknown error occurred';
   logger.warn('Migration warning', { error: message });
@@ -202,10 +218,38 @@ try {
     db.exec(`ALTER TABLE settings ADD COLUMN claude_code_max_output_tokens INTEGER DEFAULT 32000`);
     logger.info('✅ Added claude_code_max_output_tokens column to settings table');
   }
+  if (!columnNames.includes('github_max_archive_size_mb')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN github_max_archive_size_mb INTEGER DEFAULT 50`);
+    logger.info('✅ Added github_max_archive_size_mb column to settings table');
+  }
+  if (!columnNames.includes('encryption_kdf_version')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN encryption_kdf_version INTEGER DEFAULT 1`);
+    logger.info('✅ Added encryption_kdf_version column to settings table');
+  }
+  if (!columnNames.includes('anthropic_api_key_legacy_bak')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN anthropic_api_key_legacy_bak TEXT`);
+    logger.info('✅ Added anthropic_api_key_legacy_bak column to settings table (for safe KDF migration)');
+  }
 } catch (error: unknown) {
   const message = error instanceof Error ? error.message : 'Unknown error occurred';
   logger.warn('Settings migration warning', { error: message });
 }
+
+// Create github_tokens table if it doesn't exist (per-user encrypted PATs)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS github_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL UNIQUE,
+    token_encrypted TEXT NOT NULL,
+    token_name TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_github_tokens_user_id ON github_tokens(user_id);
+`);
 
 // Initialize settings with default encryption key if not exists
 try {
@@ -248,6 +292,9 @@ export interface UserWithoutPassword {
   updated_at: string;
 }
 
+export type ThreatModelingJobSourceType = 'upload' | 'github';
+export type ThreatModelingJobGitRefType = 'branch' | 'tag' | 'commit';
+
 export interface ThreatModelingJob {
   id: string;
   user_id: number;
@@ -264,6 +311,10 @@ export interface ThreatModelingJob {
   git_commit: string | null;
   execution_duration: number | null; // Duration in seconds
   api_cost: string | null; // Cost as string (e.g., "$0.3216")
+  source_type: ThreatModelingJobSourceType | null;
+  source_url: string | null;
+  git_ref: string | null;
+  git_ref_type: ThreatModelingJobGitRefType | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -275,8 +326,21 @@ export interface Settings {
   anthropic_api_key: string | null;
   anthropic_base_url: string;
   claude_code_max_output_tokens: number | null;
+  github_max_archive_size_mb: number | null;
+  encryption_kdf_version: number | null;
+  anthropic_api_key_legacy_bak: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface GitHubToken {
+  id: number;
+  user_id: number;
+  token_encrypted: string;
+  token_name: string | null;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
 }
 
 export default db;

@@ -233,6 +233,84 @@ export const api = {
     return response.json();
   },
 
+  // GitHub Token + Import
+  getGitHubTokenStatus: async () => {
+    const response = await fetch(`${API_BASE_URL}/github/token`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      handleAuthError(response);
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+      throw new Error(errorData.error || errorData.message || 'Failed to get GitHub token status');
+    }
+    return response.json();
+  },
+
+  setGitHubToken: async (token: string, name?: string) => {
+    const response = await fetch(`${API_BASE_URL}/github/token`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ token, name: name || null }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+      throw new Error(errorData.error || errorData.message || 'Failed to save GitHub token');
+    }
+    return response.json();
+  },
+
+  deleteGitHubToken: async () => {
+    const response = await fetch(`${API_BASE_URL}/github/token`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+      throw new Error(errorData.error || errorData.message || 'Failed to delete GitHub token');
+    }
+    return response.json();
+  },
+
+  validateGitHubToken: async (token: string) => {
+    const response = await fetch(`${API_BASE_URL}/github/token/validate`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ token }),
+    });
+    return response.json();
+  },
+
+  checkGitHubRepo: async (repoUrl: string) => {
+    const response = await fetch(`${API_BASE_URL}/github/check-repo`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ repoUrl }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+      throw new Error(errorData.error || errorData.message || 'Failed to check repository');
+    }
+    return response.json();
+  },
+
+  importFromGitHub: async (params: {
+    repoUrl: string;
+    gitRef: string;
+    gitRefType: 'branch' | 'tag' | 'commit';
+    repoName?: string;
+  }) => {
+    const response = await fetch(`${API_BASE_URL}/github/import`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(params),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+      throw new Error(errorData.error || errorData.message || 'Failed to start GitHub import');
+    }
+    return response.json();
+  },
+
   // Chat
   chat: async (message: string, role?: string, history?: Array<{ role: string; content: string }>) => {
     try {

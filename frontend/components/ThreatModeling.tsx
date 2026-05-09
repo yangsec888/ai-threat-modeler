@@ -14,8 +14,9 @@ import { ToastContainer } from '@/components/ui/toast'
 import { useToast } from '@/hooks/useToast'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
-import { FolderOpen, Download, Eye, Loader2, CheckCircle, XCircle, Clock, Trash2, Upload, FileSpreadsheet, FileText, ChevronDown, ChevronRight } from 'lucide-react'
+import { FolderOpen, Download, Eye, Loader2, CheckCircle, XCircle, Clock, Trash2, Upload, FileSpreadsheet, FileText, ChevronDown, ChevronRight, Github, ExternalLink } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { GitHubImport } from '@/components/GitHubImport'
 import { formatDateWithTimezone } from '@/utils/date'
 import { sanitizeErrorMessage } from '@/lib/security'
 import JSZip from 'jszip'
@@ -603,60 +604,86 @@ export function ThreatModeling() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="repository" className="text-sm font-medium mb-2 block">
-                Repository Directory
-              </label>
-              <div className="flex gap-2">
-                <div className="flex-1 border rounded-md px-3 py-2 bg-muted/50 flex items-center">
-                  {directoryName ? (
-                    <span className="text-sm flex items-center gap-2">
-                      <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                      {directoryName}
-                    </span>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">No directory selected</span>
-                  )}
+          <Tabs defaultValue="upload" className="w-full">
+            <TabsList className="grid w-full max-w-md grid-cols-2">
+              <TabsTrigger value="upload">
+                <FolderOpen className="mr-2 h-4 w-4" />
+                Upload directory
+              </TabsTrigger>
+              <TabsTrigger value="github">
+                <Github className="mr-2 h-4 w-4" />
+                Import from GitHub
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="upload" className="pt-4">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label htmlFor="repository" className="text-sm font-medium mb-2 block">
+                    Repository Directory
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="flex-1 border rounded-md px-3 py-2 bg-muted/50 flex items-center">
+                      {directoryName ? (
+                        <span className="text-sm flex items-center gap-2">
+                          <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                          {directoryName}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">No directory selected</span>
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleBrowseDirectory}
+                      className="flex items-center gap-2"
+                      disabled={uploading}
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                      {directoryName ? 'Change Directory' : 'Select Directory'}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Select your local code repository directory. It will be uploaded to the server for analysis and automatically removed after processing to protect your source code.
+                  </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleBrowseDirectory}
-                  className="flex items-center gap-2"
-                  disabled={uploading}
-                >
-                  <FolderOpen className="h-4 w-4" />
-                  {directoryName ? 'Change Directory' : 'Select Directory'}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Select your local code repository directory. It will be uploaded to the server for analysis and automatically removed after processing to protect your source code.
-              </p>
-            </div>
-            <Button type="submit" disabled={loading || !selectedDirectory}>
-              {loading ? (
-                <>
-                  {uploading ? (
+                <Button type="submit" disabled={loading || !selectedDirectory}>
+                  {loading ? (
                     <>
-                      <Upload className="mr-2 h-4 w-4 animate-pulse" />
-                      Uploading & Creating Job...
+                      {uploading ? (
+                        <>
+                          <Upload className="mr-2 h-4 w-4 animate-pulse" />
+                          Uploading & Creating Job...
+                        </>
+                      ) : (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Creating Job...
+                        </>
+                      )}
                     </>
                   ) : (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Creating Job...
+                      <Upload className="mr-2 h-4 w-4" />
+                      Upload & Create Threat Modeling Job
                     </>
                   )}
-                </>
-              ) : (
-                <>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Upload & Create Threat Modeling Job
-                </>
-              )}
-            </Button>
-          </form>
+                </Button>
+              </form>
+            </TabsContent>
+            <TabsContent value="github" className="pt-4">
+              <GitHubImport
+                onImportStarted={(job) => {
+                  setJobs((prev) => [job, ...prev])
+                  setPollingJobs((prev) => new Set([...prev, job.id]))
+                  success('GitHub import started! The repository is being downloaded and analyzed.')
+                }}
+                onError={(message) => showError(message)}
+                onInfo={(message) => info(message)}
+                onTokenNeeded={() => info('Configure a GitHub PAT in Settings to access private repositories.')}
+              />
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
       ) : (
@@ -703,23 +730,51 @@ export function ThreatModeling() {
                         </span>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-sm font-medium">Repository: {job.repoPath}</p>
+                        {job.sourceType === 'github' && job.sourceUrl ? (
+                          <p className="text-sm font-medium flex items-center gap-2 flex-wrap">
+                            <Github className="h-4 w-4 text-muted-foreground" />
+                            <span>Repository:</span>
+                            <a
+                              href={(job.sourceUrl.split('@')[0]) || '#'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-700 hover:underline inline-flex items-center gap-1"
+                              data-testid="github-source-link"
+                            >
+                              {job.sourceUrl.split('@')[0].replace('https://github.com/', '')}
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
+                          </p>
+                        ) : (
+                          <p className="text-sm font-medium">Repository: {job.repoPath}</p>
+                        )}
                         {job.owner && (
                           <p className="text-sm text-muted-foreground">Owner: {job.owner}</p>
                         )}
-                        {(job.repoName || job.gitBranch || job.gitCommit) && (
+                        {(job.repoName || job.gitBranch || job.gitCommit || job.gitRef) && (
                           <div className="flex flex-wrap gap-2 mt-2">
+                            {job.sourceType === 'github' && (
+                              <span className="px-2 py-1 bg-slate-100 text-slate-800 rounded text-xs font-medium inline-flex items-center gap-1">
+                                <Github className="h-3 w-3" />
+                                GitHub
+                              </span>
+                            )}
                             {job.repoName && (
                               <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
                                 Repo: {job.repoName}
                               </span>
                             )}
-                            {job.gitBranch && (
+                            {job.gitRef && job.gitRefType && (
+                              <span className="px-2 py-1 bg-amber-100 text-amber-900 rounded text-xs font-medium">
+                                {job.gitRefType.charAt(0).toUpperCase() + job.gitRefType.slice(1)}: {job.gitRef}
+                              </span>
+                            )}
+                            {!job.gitRef && job.gitBranch && (
                               <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
                                 Branch: {job.gitBranch}
                               </span>
                             )}
-                            {job.gitCommit && (
+                            {!job.gitRef && job.gitCommit && (
                               <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs font-medium">
                                 Commit: {job.gitCommit}
                               </span>

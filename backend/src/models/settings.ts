@@ -8,11 +8,20 @@ import db, { Settings } from '../db/database';
 import { encrypt, decrypt } from '../utils/encryption';
 import logger from '../utils/logger';
 
+/**
+ * Public-facing settings shape. SEC-009/SEC-015: never expose the encryption
+ * key or its length over any API; expose only a configured boolean. The
+ * `encryption_key` field is preserved for the existing internal callers
+ * (regenerateEncryptionKey, update) but is stripped before being returned to
+ * an HTTP handler in routes/settings.ts.
+ */
 export interface SettingsWithoutSensitive {
-  encryption_key: string; // Returned for display/update purposes
+  encryption_key: string; // Internal use only; never include in API responses
+  encryption_key_configured: boolean; // Safe for API responses
   anthropic_api_key: string | null; // Decrypted API key (only when needed)
   anthropic_base_url: string;
   claude_code_max_output_tokens: number | null;
+  github_max_archive_size_mb: number | null;
   updated_at: string;
 }
 
@@ -41,11 +50,36 @@ export class SettingsModel {
     
     return {
       encryption_key: settings.encryption_key,
+      encryption_key_configured: !!settings.encryption_key && settings.encryption_key.length >= 32,
       anthropic_api_key: decryptedApiKey,
       anthropic_base_url: settings.anthropic_base_url,
       claude_code_max_output_tokens: settings.claude_code_max_output_tokens,
+      github_max_archive_size_mb: settings.github_max_archive_size_mb ?? 50,
       updated_at: settings.updated_at,
     };
+  }
+
+  /**
+   * Internal accessor for the encryption key. Never expose via API.
+   * SEC-009: Used by models that need to encrypt/decrypt (Anthropic key,
+   * GitHub PAT). Routes must NOT call this directly.
+   */
+  static getEncryptionKey(): string {
+    const stmt = db.prepare('SELECT encryption_key FROM settings WHERE id = 1');
+    const row = stmt.get() as { encryption_key: string } | undefined;
+    if (!row || !row.encryption_key) {
+      throw new Error('Encryption key not found in settings');
+    }
+    return row.encryption_key;
+  }
+
+  /**
+   * GitHub archive size cap in MB used by the import pipeline. Defaults to 50.
+   */
+  static getGitHubMaxArchiveSizeMb(): number {
+    const stmt = db.prepare('SELECT github_max_archive_size_mb FROM settings WHERE id = 1');
+    const row = stmt.get() as { github_max_archive_size_mb: number | null } | undefined;
+    return row?.github_max_archive_size_mb ?? 50;
   }
 
   /**
@@ -184,6 +218,7 @@ export class SettingsModel {
     anthropic_api_key?: string;
     anthropic_base_url?: string;
     claude_code_max_output_tokens?: number | null;
+    github_max_archive_size_mb?: number;
   }): SettingsWithoutSensitive {
     const currentSettings = this.get(false);
     const oldEncryptionKey = currentSettings.encryption_key;
@@ -272,6 +307,17 @@ export class SettingsModel {
     // Handle Claude Code max output tokens update
     if (updates.claude_code_max_output_tokens !== undefined) {
       this.updateClaudeCodeMaxOutputTokens(updates.claude_code_max_output_tokens);
+    }
+    
+    // Handle GitHub max archive size update
+    if (updates.github_max_archive_size_mb !== undefined) {
+      const stmt = db.prepare(`
+        UPDATE settings
+        SET github_max_archive_size_mb = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+      `);
+      stmt.run(updates.github_max_archive_size_mb);
     }
     
     // Return updated settings (with decrypted API key if it was updated)

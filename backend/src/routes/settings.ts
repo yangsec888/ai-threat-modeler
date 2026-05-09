@@ -28,10 +28,13 @@ router.get('/', authenticateToken, (req: AuthRequest, res: Response) => {
     res.json({
       status: 'success',
       settings: {
-        encryption_key: settings.encryption_key,
+        // SEC-009/SEC-015: never expose the encryption key (or its length).
+        // Surface only a configured boolean for the Admin UI.
+        encryption_key_configured: settings.encryption_key_configured,
         anthropic_api_key: settings.anthropic_api_key ? '***ENCRYPTED***' : null,
         anthropic_base_url: settings.anthropic_base_url,
         claude_code_max_output_tokens: settings.claude_code_max_output_tokens,
+        github_max_archive_size_mb: settings.github_max_archive_size_mb,
         updated_at: settings.updated_at,
       }
     });
@@ -53,24 +56,25 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Access denied. Admin role required.' });
     }
     
-    const { encryption_key, anthropic_api_key, anthropic_base_url, claude_code_max_output_tokens } = req.body;
+    const { encryption_key, anthropic_api_key, anthropic_base_url, claude_code_max_output_tokens, github_max_archive_size_mb } = req.body;
+    
+    // SEC-009: encryption_key is never accepted via API. Rotation is performed
+    // via the dedicated regenerate-encryption-key endpoint (server-side only).
+    if (encryption_key !== undefined) {
+      return res.status(400).json({
+        error: 'encryption_key cannot be set via the settings API. Use POST /api/settings/regenerate-encryption-key to rotate.'
+      });
+    }
     
     logger.info('📝 Settings update request received:');
-    logger.info(`   encryption_key: ${encryption_key !== undefined ? (encryption_key ? `[${encryption_key.length} chars]` : 'empty') : 'undefined'}`);
     logger.info(`   anthropic_api_key: ${anthropic_api_key !== undefined ? (anthropic_api_key ? `[${anthropic_api_key.length} chars]` : 'empty') : 'undefined'}`);
     logger.info(`   anthropic_base_url: ${anthropic_base_url !== undefined ? anthropic_base_url : 'undefined'}`);
     logger.info(`   claude_code_max_output_tokens: ${claude_code_max_output_tokens !== undefined ? claude_code_max_output_tokens : 'undefined'}`);
+    logger.info(`   github_max_archive_size_mb: ${github_max_archive_size_mb !== undefined ? github_max_archive_size_mb : 'undefined'}`);
     
     // Validate that at least one field is provided
-    if (encryption_key === undefined && anthropic_api_key === undefined && anthropic_base_url === undefined && claude_code_max_output_tokens === undefined) {
+    if (anthropic_api_key === undefined && anthropic_base_url === undefined && claude_code_max_output_tokens === undefined && github_max_archive_size_mb === undefined) {
       return res.status(400).json({ error: 'At least one setting must be provided' });
-    }
-    
-    // Validate encryption key if provided
-    if (encryption_key !== undefined) {
-      if (typeof encryption_key !== 'string' || encryption_key.length < 32) {
-        return res.status(400).json({ error: 'Encryption key must be at least 32 characters' });
-      }
     }
     
     // Validate API key if provided
@@ -96,22 +100,30 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       }
     }
     
+    // Validate GitHub max archive size if provided
+    if (github_max_archive_size_mb !== undefined) {
+      if (typeof github_max_archive_size_mb !== 'number' || github_max_archive_size_mb < 1 || github_max_archive_size_mb > 5000) {
+        return res.status(400).json({ error: 'github_max_archive_size_mb must be a number between 1 and 5000' });
+      }
+    }
+    
     // Update settings
     const updatedSettings = SettingsModel.update({
-      encryption_key,
       anthropic_api_key,
       anthropic_base_url,
       claude_code_max_output_tokens,
+      github_max_archive_size_mb,
     });
     
     res.json({
       status: 'success',
       message: 'Settings updated successfully',
       settings: {
-        encryption_key: updatedSettings.encryption_key,
+        encryption_key_configured: updatedSettings.encryption_key_configured,
         anthropic_api_key: updatedSettings.anthropic_api_key ? '***ENCRYPTED***' : null,
         anthropic_base_url: updatedSettings.anthropic_base_url,
         claude_code_max_output_tokens: updatedSettings.claude_code_max_output_tokens,
+        github_max_archive_size_mb: updatedSettings.github_max_archive_size_mb,
         updated_at: updatedSettings.updated_at,
       }
     });

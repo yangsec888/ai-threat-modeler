@@ -10,6 +10,11 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
+      # SEC-003: backend fails to boot in NODE_ENV=production without this.
+      # Generate with: openssl rand -hex 32 and put in .env.
+      # Intentionally NOT using ${JWT_SECRET:?...} so `docker-compose down`,
+      # `ps`, and `logs` keep working when the var is unset.
+      - JWT_SECRET=${JWT_SECRET}
     volumes:
       - ./backend/data:/app/data
       - ./backend/uploads:/app/uploads
