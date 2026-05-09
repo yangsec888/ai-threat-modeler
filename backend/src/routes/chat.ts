@@ -45,12 +45,18 @@ setInterval(() => {
 
 // Find agent-run CLI script path
 function findAgentRunPath(): string {
-  // Try multiple possible paths for agent-run
   const possiblePaths = [
+    // Published package (dist/bin/)
+    path.join(process.cwd(), 'node_modules', 'appsec-agent', 'dist', 'bin', 'agent-run.js'),
+    // Local file: link (dist/bin/)
+    path.join(__dirname, '..', '..', '..', 'appsec-agent', 'dist', 'bin', 'agent-run.js'),
+    path.join(__dirname, '..', '..', '..', '..', 'appsec-agent', 'dist', 'bin', 'agent-run.js'),
+    path.join(process.cwd(), '..', 'appsec-agent', 'dist', 'bin', 'agent-run.js'),
+    // Legacy paths (bin/ without dist/)
+    path.join(process.cwd(), 'node_modules', 'appsec-agent', 'bin', 'agent-run.js'),
     path.join(__dirname, '..', '..', '..', 'appsec-agent', 'bin', 'agent-run.js'),
     path.join(__dirname, '..', '..', '..', '..', 'appsec-agent', 'bin', 'agent-run.js'),
     path.join(process.cwd(), '..', 'appsec-agent', 'bin', 'agent-run.js'),
-    path.join(process.cwd(), 'node_modules', 'appsec-agent', 'bin', 'agent-run.js'),
   ];
 
   for (const agentRunPath of possiblePaths) {

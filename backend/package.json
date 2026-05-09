@@ -1,6 +1,6 @@
 {
   "name": "threat-model-ai-backend",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Express.js backend for AI Threat Modeler Dashboard",
   "main": "dist/index.js",
   "scripts": {

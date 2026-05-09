@@ -5,6 +5,12 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-05-09
+
+### Fixed
+- **Chat panel `agent-run script not found`**: `backend/src/routes/chat.ts` was looking for the `appsec-agent` CLI under `appsec-agent/bin/agent-run.js`, but the published `appsec-agent@2.1.7+` package declares its bin at `./dist/bin/agent-run.js` (the same location `threatModeling.ts` was already searching). Mirrored the same path list `routes/threatModeling.ts` uses — `node_modules/appsec-agent/dist/bin/agent-run.js` first, sibling-checkout `dist/bin/` variants next, legacy `bin/` paths kept as fallbacks — so the chat tab now finds the CLI in both the Docker image (npm package) and a local `file:` link to a sibling `appsec-agent` checkout. Threat-modeling jobs were unaffected
+- **Root** package version **1.6.1**, **backend** package version **1.4.1**
+
 ## [1.6.0] - 2026-05-09
 
 ### Added
