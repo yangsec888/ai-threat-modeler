@@ -5,6 +5,16 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.6] - 2026-05-09
+
+### Added
+- **Project version on the login page.** The login screen now renders a small `Version X.Y.Z` line under the login card so operators can confirm at a glance which build of the app a given environment is on (matters when triaging stuck-job / hang reports against the v1.6.3 → v1.6.5 fix train). The string comes from the **root** `package.json` rather than the frontend's own version, which is the canonical project version called out in every release entry of this changelog.
+
+### Changed
+- **`frontend/next.config.js`**: new `resolveAppVersion()` helper reads `../package.json` at config-load time and exposes the result to the browser bundle as `NEXT_PUBLIC_APP_VERSION` via the `env` block. Falls back to the frontend's own `package.json` version, then to the literal string `'unknown'`, so a missing/unreadable root manifest can never crash the build. The root `package.json` itself is **not** imported into the client bundle (would otherwise leak `dependencies` / `scripts` / `description` into shipped JS).
+- **`frontend/components/Login.tsx`**: reads `process.env.NEXT_PUBLIC_APP_VERSION` once at module scope into `APP_VERSION` and renders `Version {APP_VERSION}` in a muted-foreground `<p data-testid="app-version">` underneath the login `Card`. The element is gated on `APP_VERSION` being truthy so an empty value renders nothing rather than a stray `Version `.
+- **Root** package version **1.6.6**, **frontend** package version **1.6.1**.
+
 ## [1.6.5] - 2026-05-09
 
 ### Added

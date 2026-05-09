@@ -15,6 +15,8 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { validateUsername, validateEmail, sanitizeErrorMessage, truncateString } from '@/lib/security';
 
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || '';
+
 export function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -112,6 +114,14 @@ export function Login() {
           </form>
         </CardContent>
         </Card>
+        {APP_VERSION && (
+          <p
+            className="text-center text-xs text-muted-foreground"
+            data-testid="app-version"
+          >
+            Version {APP_VERSION}
+          </p>
+        )}
       </div>
     </div>
   );
