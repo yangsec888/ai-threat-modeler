@@ -5,6 +5,14 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-05-09
+
+### Changed
+- **`docker-compose.yml` host-portable `user:`**: Replaced the hardcoded macOS-specific `user: "502:502"` on both `backend` and `frontend` with `user: "${UID:-502}:${GID:-502}"`. The default reproduces the previous behavior, and on any other host (Linux CI, teammate workstations, prod) you can now run `UID=$(id -u) GID=$(id -g) docker-compose up -d --build` so the container user owns the bind-mounted `./backend/{data,uploads,work_dir,threat-modeling-reports,logs}` directories instead of crashing on the first write
+- **`docker-compose.yml` parameterized `NEXT_PUBLIC_API_URL`**: Promoted both the frontend `build.args` value and the runtime `environment` value to `${NEXT_PUBLIC_API_URL:-http://localhost:3001/api}`. Default still bakes `http://localhost:3001/api` into the Next.js image, but the URL can now be overridden at build time for non-localhost deployments without editing the compose file. Without this, the `NEXT_PUBLIC_*` inlining at build time meant the image only worked when the browser opened the app at `localhost`
+- **Frontend Next.js bump**: `next` `^15.5.10` → `^15.5.18` (caret bump pulled in via `npm audit fix`), with associated lockfile updates resolving advisories in transitive deps (`axios`, `brace-expansion`, `dompurify`, `flatted`, `follow-redirects`, `jspdf`, `picomatch`)
+- **Root** package version **1.4.2**, **frontend** package version **1.4.1**, **backend** package version **1.2.4**
+
 ## [1.4.1] - 2026-04-18
 
 ### Fixed

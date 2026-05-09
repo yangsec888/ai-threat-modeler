@@ -4,7 +4,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: threat-model-ai-backend
-    user: "502:502"
+    user: "${UID:-502}:${GID:-502}"
     ports:
       - "3001:3001"
     environment:
@@ -57,14 +57,14 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=http://localhost:3001/api
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3001/api}
     container_name: threat-model-ai-frontend
-    user: "502:502"
+    user: "${UID:-502}:${GID:-502}"
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://localhost:3001/api
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3001/api}
     logging:
       driver: "json-file"
       options:
