@@ -5,6 +5,18 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.4] - 2026-05-09
+
+### Fixed
+- **GitHub-imported threat modeling jobs hang in `processing` even after the agent finishes and writes a complete report.** Diagnosed from a real stuck job (`941dd823-…`, importing `yangsec888/ai-threat-modeler@main`) that sat in `processing` for >25 minutes despite `work_dir/<jobId>/threat_model_report.json` being a valid 70 KB JSON written ~17 minutes earlier. Root cause: `processThreatModelingJob` awaited `child.on('close', …)`. Node's `'close'` event waits for ALL stdio FDs to drain. When `appsec-agent` forks a grandchild (the Claude Code helper) that inherits stdout/stderr and exits in a way that doesn't release the pipes promptly, `'close'` never fires and the parent's promise hangs forever — the post-agent code (chdir restore, mutex release, report-discovery, `updateReports` → `status='completed'`) is never reached. The spawn-await pattern is now extracted into a new exported helper `awaitAgentChildExit` that uses `'exit'` as the truth source (fires on immediate-child termination regardless of stdio state) with a 10-second grace window for `'close'` to deliver tail output, then forcibly destroys stdout/stderr and resolves with `forced: true` so the job can never hang. Confirmed via 6 new unit tests covering happy path, hang path (with and without non-zero exit code), error path, signal path, and close-before-exit ordering.
+- **Resolve-exactly-once settlement guard.** Previously the spawn promise listened only to `'close'` and `'error'`. The new helper listens to `'exit'`, `'close'`, AND `'error'`, and a `settled` flag plus `clearTimeout(postExitTimer)` guarantees the outer promise resolves/rejects exactly once even when `'close'` arrives after the grace window has already finalized via `'exit'`.
+- **Salvaged the production-stuck job in the local DB.** `941dd823-7c88-41d9-b501-726abbbef70e` was force-completed: the agent's `threat_model_report.json` was copied from `work_dir/` to `threat-modeling-reports/<jobId>/`, the `report_path` / `data_flow_diagram_path` / `threat_model_path` / `risk_registry_path` columns were pointed at it, `status` set to `completed`, and `error_message` annotated with the recovery context.
+
+### Changed
+- **`backend/src/routes/threatModeling.ts`**: spawn-await pattern moved out of an inline `new Promise(...)` into a new exported helper `awaitAgentChildExit(child, jobId, { graceMs })`. The helper returns `{ exitCode, signal, forced }` so callers can record telemetry on whether `'close'` fired naturally or had to be forced. Existing cancellation listener (`SIGTERM` then `SIGKILL` after 5s) is preserved and properly removed in a `finally` block to avoid abort-listener leaks.
+- **Tests**: backend Jest count **183 → 189** (+6 helper unit tests). All 16 backend test suites green.
+- **Root** package version **1.6.4**, **backend** package version **1.4.4**.
+
 ## [1.6.3] - 2026-05-09
 
 ### Fixed

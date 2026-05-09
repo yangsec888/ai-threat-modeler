@@ -7,7 +7,7 @@
 import { Router, Request, Response } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
-import { execSync, spawn } from 'child_process';
+import { execSync, spawn, ChildProcess } from 'child_process';
 import archiver from 'archiver';
 import multer from 'multer';
 import yauzl from 'yauzl';
@@ -22,6 +22,119 @@ const router = Router();
 
 // Base directory name for reports (relative to process.cwd())
 const REPORTS_DIR_NAME = 'threat-modeling-reports';
+
+/**
+ * Result of awaiting an agent-run child process.
+ *
+ * `exitCode` is the OS exit code (or null if killed by a signal).
+ * `signal` is the terminating signal name (or null if exited normally).
+ * `forced` is true if we resolved on the post-exit grace timeout because
+ *  'close' never fired (i.e. stdio FDs lingered after the immediate child
+ *  terminated). Useful for telemetry and for tests.
+ */
+export interface AgentChildExitResult {
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  forced: boolean;
+}
+
+/**
+ * Wait for an agent-run child process to exit, robust against the
+ * "close never fires" hang we hit in v1.6.3.
+ *
+ * Why this helper exists
+ * ----------------------
+ * Node's `child.on('close', ...)` waits for ALL stdio FDs to drain. If the
+ * agent forks a grandchild (e.g. the Claude Code helper that appsec-agent
+ * spawns) that inherits stdout/stderr and exits in a way that doesn't
+ * release the pipes promptly, 'close' can stall indefinitely. We observed
+ * a job stuck in 'processing' for >25 minutes despite the agent finishing
+ * and writing a complete threat_model_report.json. The parent stayed in
+ * `await` waiting on a 'close' event that never arrived.
+ *
+ * The fix uses `child.on('exit', ...)` as the truth source — it fires when
+ * the immediate child process terminates, regardless of stdio state — and
+ * gives 'close' a short grace window to deliver any tail output, then
+ * forcibly destroys the streams and resolves anyway. This guarantees the
+ * caller's promise always settles within `graceMs` of the immediate-child
+ * exit, removing any possibility of an indefinite hang.
+ *
+ * Behaviour:
+ * - Resolves with the exit code/signal as soon as 'close' fires (happy path).
+ * - If 'exit' fires but 'close' has not fired within `graceMs`, destroys
+ *   stdout/stderr, sets `forced: true`, and resolves with the captured exit
+ *   code from 'exit'.
+ * - Rejects if the child fails to spawn ('error' event) or if it terminates
+ *   by signal with a null exit code.
+ * - Resolves (does not reject) on non-zero exit codes — callers decide
+ *   whether to treat that as a job failure based on whether reports were
+ *   generated.
+ */
+export function awaitAgentChildExit(
+  childProcess: ChildProcess,
+  jobId: string,
+  options: { graceMs?: number } = {},
+): Promise<AgentChildExitResult> {
+  const graceMs = options.graceMs ?? 10_000;
+  return new Promise<AgentChildExitResult>((resolve, reject) => {
+    let settled = false;
+    let exitObserved = false;
+    let observedExitCode: number | null = null;
+    let observedSignal: NodeJS.Signals | null = null;
+    let postExitTimer: NodeJS.Timeout | null = null;
+
+    const finish = (action: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (postExitTimer) {
+        clearTimeout(postExitTimer);
+        postExitTimer = null;
+      }
+      action();
+    };
+
+    childProcess.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+      exitObserved = true;
+      observedExitCode = code;
+      observedSignal = signal;
+      logger.info(`🏁 agent-run exited (event=exit) code=${code ?? 'null'} signal=${signal ?? 'none'}`);
+
+      postExitTimer = setTimeout(() => {
+        if (settled) return;
+        logger.warn(
+          `⏱️  'close' did not fire ${graceMs}ms after 'exit'; forcing stdio shutdown to unblock job ${jobId}`,
+        );
+        try { childProcess.stdout?.destroy(); } catch { /* ignore */ }
+        try { childProcess.stderr?.destroy(); } catch { /* ignore */ }
+        if (code === null) {
+          finish(() =>
+            reject(new Error(`agent-run process terminated by signal: ${signal || 'unknown'}`)),
+          );
+        } else {
+          finish(() => resolve({ exitCode: code, signal, forced: true }));
+        }
+      }, graceMs);
+    });
+
+    childProcess.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
+      const finalCode = exitObserved ? observedExitCode : code;
+      const finalSignal = exitObserved ? observedSignal : signal;
+      if (finalCode === null) {
+        finish(() =>
+          reject(
+            new Error(`agent-run process terminated by signal: ${finalSignal || 'unknown'}`),
+          ),
+        );
+      } else {
+        finish(() => resolve({ exitCode: finalCode, signal: finalSignal, forced: false }));
+      }
+    });
+
+    childProcess.on('error', (error: Error) => {
+      finish(() => reject(new Error(`Failed to execute agent-run: ${error.message}`)));
+    });
+  });
+}
 
 /**
  * Resolve a report path to an absolute path
@@ -579,69 +692,60 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
         logger.info(`🔧 Setting CLAUDE_CODE_MAX_OUTPUT_TOKENS=${claudeCodeMaxOutputTokens} for agent-run`);
       }
       
-      await new Promise<void>((resolve, reject) => {
-        const childProcess = spawn(agentRunCommand[0], agentRunCommand.slice(1), {
-          cwd: workDir,
-          env: env, // Pass environment variables including ANTHROPIC_API_KEY and CLAUDE_CODE_MAX_OUTPUT_TOKENS
-          stdio: ['ignore', 'pipe', 'pipe'] // stdin: ignore, stdout: pipe, stderr: pipe
-        });
-        
-        // Collect stdout data
-        if (childProcess.stdout) {
-          childProcess.stdout.setEncoding('utf-8');
-          childProcess.stdout.on('data', (data: string) => {
-            capturedOutput += data;
-            logger.info(data);
-          });
-        }
-        
-        // Collect stderr data
-        if (childProcess.stderr) {
-          childProcess.stderr.setEncoding('utf-8');
-          childProcess.stderr.on('data', (data: string) => {
-            capturedOutput += data;
-            logger.error(data);
-          });
-        }
-        
-        // Handle process completion
-        childProcess.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
-          processExitCode = code;
-          // Don't immediately reject on non-zero exit code
-          // The process might have generated reports even with warnings/errors
-          // We'll check for reports later and handle accordingly
-          if (code === null) {
-            processError = new Error(`agent-run process terminated by signal: ${signal || 'unknown'}`);
-            reject(processError);
-          } else if (code !== 0) {
-            // Store the exit code but don't reject yet - we'll check for reports first
-            logger.warn(`⚠️  agent-run exited with code ${code}${signal ? ` (signal: ${signal})` : ''}`);
-            logger.warn(`   This may be a warning (e.g., token limit) but reports might still be generated`);
-            // Resolve anyway - we'll check for reports and handle the error later
-            resolve();
-          } else {
-            resolve();
-          }
-        });
-        
-        // Handle process errors (spawn failures, not exit codes)
-        childProcess.on('error', (error: Error) => {
-          processError = new Error(`Failed to execute agent-run: ${error.message}`);
-          reject(processError);
-        });
-        
-        // Handle cancellation
-        abortController.signal.addEventListener('abort', () => {
-          logger.info(`🛑 Killing agent-run process for job ${jobId}...`);
-          childProcess.kill('SIGTERM');
-          // Give it a moment to gracefully shutdown, then force kill
-          setTimeout(() => {
-            if (!childProcess.killed) {
-              childProcess.kill('SIGKILL');
-            }
-          }, 5000);
-        });
+      const childProcess = spawn(agentRunCommand[0], agentRunCommand.slice(1), {
+        cwd: workDir,
+        env: env, // Pass environment variables including ANTHROPIC_API_KEY and CLAUDE_CODE_MAX_OUTPUT_TOKENS
+        stdio: ['ignore', 'pipe', 'pipe'] // stdin: ignore, stdout: pipe, stderr: pipe
       });
+
+      if (childProcess.stdout) {
+        childProcess.stdout.setEncoding('utf-8');
+        childProcess.stdout.on('data', (data: string) => {
+          capturedOutput += data;
+          logger.info(data);
+        });
+      }
+
+      if (childProcess.stderr) {
+        childProcess.stderr.setEncoding('utf-8');
+        childProcess.stderr.on('data', (data: string) => {
+          capturedOutput += data;
+          logger.error(data);
+        });
+      }
+
+      const onAbort = () => {
+        logger.info(`🛑 Killing agent-run process for job ${jobId}...`);
+        childProcess.kill('SIGTERM');
+        // Give it a moment to gracefully shut down, then force kill
+        setTimeout(() => {
+          if (!childProcess.killed) {
+            childProcess.kill('SIGKILL');
+          }
+        }, 5000);
+      };
+      abortController.signal.addEventListener('abort', onAbort);
+
+      try {
+        // Use the exit-aware helper so we never hang on 'close' if the
+        // agent forks a grandchild (e.g. Claude Code) that inherits stdio.
+        const exitResult = await awaitAgentChildExit(childProcess, jobId);
+        processExitCode = exitResult.exitCode;
+        if (exitResult.exitCode !== null && exitResult.exitCode !== 0) {
+          logger.warn(
+            `⚠️  agent-run exited with code ${exitResult.exitCode}${exitResult.signal ? ` (signal: ${exitResult.signal})` : ''}`,
+          );
+          logger.warn(`   This may be a warning (e.g., token limit) but reports might still be generated`);
+        }
+        if (exitResult.forced) {
+          logger.warn(`   (resolved via post-exit grace; 'close' never fired — investigate stdio inheritance)`);
+        }
+      } catch (err) {
+        processError = err instanceof Error ? err : new Error(String(err));
+        throw processError;
+      } finally {
+        abortController.signal.removeEventListener('abort', onAbort);
+      }
       
       // Log warning if process exited with non-zero code
       if (processExitCode !== null && processExitCode !== 0) {
