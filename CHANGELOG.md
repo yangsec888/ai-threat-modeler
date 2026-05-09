@@ -5,6 +5,25 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.5] - 2026-05-09
+
+### Added
+- **Stuck-job watchdog** (`backend/src/init/stuckJobWatchdog.ts`). A periodic sweep (default every 5 min) that finds rows still in `status='processing'` past a threshold (default 60 min) and resolves them deterministically rather than letting them sit in the UI forever:
+  - If `work_dir/<jobId>/threat_model_report.json` exists and parses as JSON with the required `threat_model_report` root key, the row is auto-recovered: the report is copied into `threat-modeling-reports/<jobId>/`, status flips to `completed`, and `error_message` is annotated with a "Watchdog auto-recovery" explanation pointing the operator at the underlying handoff bug.
+  - Otherwise the row is auto-failed with a `Watchdog auto-fail` message that tells the user to re-import.
+  - Per-row exceptions and DB query failures never abort the sweep — the watchdog keeps running across server uptime.
+  - Configurable via `STUCK_JOB_WATCHDOG_INTERVAL_MS` and `STUCK_JOB_WATCHDOG_THRESHOLD_MIN` env vars; the timer is `unref()`ed so it never blocks shutdown; disabled in `NODE_ENV=test`.
+  - This is the runtime guard for the class of bugs unit tests can't enumerate (v1.6.3 size-cap hang, v1.6.4 close-event hang, and any future "stuck in processing" variant we haven't anticipated). The salvage we did manually for job `941dd823-…` is now automatic.
+- **Real-spawn unit test** (`backend/src/__tests__/routes/awaitAgentChildExit.realSpawn.test.ts`). Two tests that use real `child_process.spawn` of a `process.execPath -e '<script>'` rather than mocking `child_process` at the module boundary:
+  - **Adversarial path**: the script forks a *detached* grandchild that inherits stdout/stderr and lingers for 1500 ms, then exits the immediate parent after 50 ms — the exact production failure mode (Claude Code helper holding the agent's stdio FDs open). With pre-v1.6.4 code this hangs ≥1500 ms; the v1.6.4 helper must resolve via the post-exit grace timer in <1400 ms with `forced: true`.
+  - **Happy path**: a real child that exits cleanly, asserting `forced: false` and `<500 ms` settle time.
+  - This is the first test in the repo that exercises Node's actual stdio/SIGCHLD machinery — every other test mocks `spawn` at the boundary, which is precisely how the v1.6.3 / v1.6.4 hangs slipped past CI.
+
+### Changed
+- **`backend/src/index.ts`**: `startStuckJobWatchdog()` is started after `app.listen()` alongside the existing orphaned-uploads cleanup interval.
+- **Tests**: backend Jest count **189 → 199** (+8 watchdog unit tests, +2 real-spawn tests). All 18 backend test suites green.
+- **Root** package version **1.6.5**, **backend** package version **1.4.5**.
+
 ## [1.6.4] - 2026-05-09
 
 ### Fixed

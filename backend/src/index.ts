@@ -20,6 +20,7 @@ import { settingsRoutes } from './routes/settings';
 import { githubRoutes } from './routes/github';
 import { initializeDefaultAdmin } from './init/defaultUser';
 import { runEncryptionKdfMigration } from './init/encryptionKdfMigration';
+import { startStuckJobWatchdog } from './init/stuckJobWatchdog';
 import { cleanupOrphanedUploads } from './utils/cleanupOrphanedUploads';
 import logger, { morganStream } from './utils/logger';
 import './db/database'; // Initialize database
@@ -117,5 +118,11 @@ app.listen(PORT, () => {
       logger.error('Periodic cleanup failed', { error });
     }
   }, 60 * 60 * 1000); // Run every hour
+
+  // Stuck-job watchdog: sweeps jobs that have been in 'processing' past the
+  // threshold (default 60m). Recovers from disk if a valid report exists,
+  // otherwise auto-fails the row. Last-line-of-defense for spawn/handoff
+  // bugs that tests can't enumerate (see CHANGELOG v1.6.5).
+  startStuckJobWatchdog();
 });
 
