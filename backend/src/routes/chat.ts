@@ -92,6 +92,16 @@ async function createChatSession(userId: number, role: string): Promise<ChatSess
 
   // Set up environment variables
   const env = { ...process.env };
+
+  // CRITICAL: Set ANTHROPIC_API_KEY in environment for Claude Code SDK.
+  // The SDK has environment inheritance issues in Docker (GitHub issue #4383)
+  // and reads ANTHROPIC_API_KEY from env, not just the agent-run -k flag.
+  // Without this, the chat session reports "Invalid API key" even when the
+  // DB-stored key is correct (it falls back to whatever is on the parent
+  // process env, which is typically nothing).
+  // Mirrors the same fix in routes/threatModeling.ts.
+  env.ANTHROPIC_API_KEY = anthropicConfig.apiKey;
+
   if (claudeCodeMaxOutputTokens) {
     env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = claudeCodeMaxOutputTokens.toString();
   }

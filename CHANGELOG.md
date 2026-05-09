@@ -5,6 +5,12 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-05-09
+
+### Fixed
+- **Chat panel "Invalid API key" despite a valid DB-stored key**: `backend/src/routes/chat.ts` was reading the Anthropic key out of the database and passing it to `agent-run` via the `-k` flag, but the Claude Agent SDK underneath ignores that flag and reads `ANTHROPIC_API_KEY` directly from the spawned process's environment (the same env-inheritance issue tracked as `anthropics/claude-code#4383`). With nothing in env, the SDK fell through to whatever was inherited from the parent `node` process and reported `Invalid API key · Fix external API key` even though the configured key was correct. Mirrored the existing fix in `routes/threatModeling.ts`: `createChatSession()` now sets `env.ANTHROPIC_API_KEY = anthropicConfig.apiKey` before `spawn()`. The `-k` flag is kept as a redundancy for non-SDK code paths in `agent-run`. Existing chat sessions cached in `chatSessions` from before the fix must be ended (`/end` or the End Session button) so a new child process spawns with the corrected env
+- **Root** package version **1.6.2**, **backend** package version **1.4.2**
+
 ## [1.6.1] - 2026-05-09
 
 ### Fixed
