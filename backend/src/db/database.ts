@@ -158,10 +158,56 @@ try {
     db.exec(`ALTER TABLE threat_modeling_jobs ADD COLUMN git_ref_type TEXT`);
     logger.info('✅ Added git_ref_type column to threat_modeling_jobs table');
   }
+  if (!columnNames.includes('context')) {
+    db.exec(`ALTER TABLE threat_modeling_jobs ADD COLUMN context TEXT`);
+    logger.info('✅ Added context column to threat_modeling_jobs table');
+  }
+  if (!columnNames.includes('context_fields')) {
+    db.exec(`ALTER TABLE threat_modeling_jobs ADD COLUMN context_fields TEXT`);
+    logger.info('✅ Added context_fields column to threat_modeling_jobs table');
+  }
+  if (!columnNames.includes('extracted_dir')) {
+    db.exec(`ALTER TABLE threat_modeling_jobs ADD COLUMN extracted_dir TEXT`);
+    logger.info('✅ Added extracted_dir column to threat_modeling_jobs table');
+  }
+  if (!columnNames.includes('uploaded_zip_path')) {
+    db.exec(`ALTER TABLE threat_modeling_jobs ADD COLUMN uploaded_zip_path TEXT`);
+    logger.info('✅ Added uploaded_zip_path column to threat_modeling_jobs table');
+  }
 } catch (error: unknown) {
   const message = error instanceof Error ? error.message : 'Unknown error occurred';
   logger.warn('Migration warning', { error: message });
 }
+
+// Staging table for two-step context extraction flow
+db.exec(`
+  CREATE TABLE IF NOT EXISTS threat_modeling_stagings (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'upload',
+    source_url TEXT,
+    repo_name TEXT,
+    git_branch TEXT,
+    git_commit TEXT,
+    git_ref TEXT,
+    git_ref_type TEXT,
+    repo_path TEXT,
+    uploaded_zip_path TEXT,
+    extracted_dir TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    extraction_error TEXT,
+    draft_context_fields TEXT,
+    extraction_raw TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_threat_modeling_stagings_user_id ON threat_modeling_stagings(user_id);
+  CREATE INDEX IF NOT EXISTS idx_threat_modeling_stagings_status ON threat_modeling_stagings(status);
+  CREATE INDEX IF NOT EXISTS idx_threat_modeling_stagings_expires_at ON threat_modeling_stagings(expires_at);
+`);
 
 // Migrate existing users: add password_changed column if it doesn't exist
 try {
@@ -295,6 +341,47 @@ export interface UserWithoutPassword {
 export type ThreatModelingJobSourceType = 'upload' | 'github';
 export type ThreatModelingJobGitRefType = 'branch' | 'tag' | 'commit';
 
+/** Six editable context fields (camelCase in API/DB JSON). */
+export interface ContextFields {
+  projectSummary?: string | null;
+  securityContext?: string | null;
+  deploymentContext?: string | null;
+  developerContext?: string | null;
+  suggestedExclusions?: string | null;
+  additionalContext?: string | null;
+}
+
+export type StagingStatus =
+  | 'pending'
+  | 'extracting'
+  | 'ready'
+  | 'failed'
+  | 'consumed'
+  | 'cancelled'
+  | 'expired';
+
+export interface ThreatModelingStaging {
+  id: string;
+  user_id: number;
+  source_type: ThreatModelingJobSourceType;
+  source_url: string | null;
+  repo_name: string | null;
+  git_branch: string | null;
+  git_commit: string | null;
+  git_ref: string | null;
+  git_ref_type: ThreatModelingJobGitRefType | null;
+  repo_path: string | null;
+  uploaded_zip_path: string | null;
+  extracted_dir: string | null;
+  status: StagingStatus;
+  extraction_error: string | null;
+  draft_context_fields: string | null;
+  extraction_raw: string | null;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+}
+
 export interface ThreatModelingJob {
   id: string;
   user_id: number;
@@ -315,6 +402,10 @@ export interface ThreatModelingJob {
   source_url: string | null;
   git_ref: string | null;
   git_ref_type: ThreatModelingJobGitRefType | null;
+  context: string | null;
+  context_fields: string | null;
+  extracted_dir: string | null;
+  uploaded_zip_path: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;

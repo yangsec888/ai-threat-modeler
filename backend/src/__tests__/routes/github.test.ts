@@ -47,6 +47,18 @@ jest.mock('../../models/settings', () => ({
   },
 }));
 
+jest.mock('../../models/threatModelingStaging', () => ({
+  ThreatModelingStagingModel: {
+    create: jest.fn(() => ({ id: 'staging-1', status: 'pending' })),
+    setExtractedPaths: jest.fn(),
+    markFailed: jest.fn(),
+  },
+}));
+
+jest.mock('../../services/stagingOrchestrator', () => ({
+  scheduleStagingExtraction: jest.fn(),
+}));
+
 jest.mock('../../middleware/auth', () => ({
   authenticateToken: jest.fn((req: any, _res: any, next: any) => {
     req.userId = 42;
@@ -274,13 +286,13 @@ describe('GitHub Routes', () => {
       });
     });
 
-    it('rejects missing repoUrl', async () => {
-      const r = await request(app).post('/api/github/import').send({ gitRef: 'main', gitRefType: 'branch' });
+    it('rejects missing repoUrl on /stage', async () => {
+      const r = await request(app).post('/api/github/stage').send({ gitRef: 'main', gitRefType: 'branch' });
       expect(r.status).toBe(400);
     });
 
-    it('rejects invalid gitRefType', async () => {
-      const r = await request(app).post('/api/github/import').send({
+    it('rejects invalid gitRefType on /stage', async () => {
+      const r = await request(app).post('/api/github/stage').send({
         repoUrl: 'https://github.com/o/r',
         gitRef: 'main',
         gitRefType: 'tagz',
@@ -289,8 +301,8 @@ describe('GitHub Routes', () => {
       expect(r.body.error).toMatch(/gitRefType/);
     });
 
-    it('rejects gitRef with shell metacharacters', async () => {
-      const r = await request(app).post('/api/github/import').send({
+    it('rejects gitRef with shell metacharacters on /stage', async () => {
+      const r = await request(app).post('/api/github/stage').send({
         repoUrl: 'https://github.com/o/r',
         gitRef: 'main; rm -rf /',
         gitRefType: 'branch',
@@ -298,26 +310,17 @@ describe('GitHub Routes', () => {
       expect(r.status).toBe(400);
     });
 
-    it('creates a github-source job and returns 202', async () => {
+    it('returns 410 Gone for legacy import (migrate to /github/stage)', async () => {
       const r = await request(app).post('/api/github/import').send({
         repoUrl: 'https://github.com/o/r',
         gitRef: 'main',
         gitRefType: 'branch',
         repoName: 'r',
       });
-      expect(r.status).toBe(202);
-      expect(r.body.jobId).toBe('job-1');
-      expect(r.body.job.sourceType).toBe('github');
-      expect(r.body.job.sourceUrl).toContain('https://github.com/o/r');
-      expect(ThreatModelingJobModel.create).toHaveBeenCalledWith(
-        42,
-        '[GITHUB] o/r@main',
-        undefined,
-        'r',
-        'main',
-        null,
-        expect.objectContaining({ sourceType: 'github', gitRef: 'main', gitRefType: 'branch' }),
-      );
+      expect(r.status).toBe(410);
+      expect(r.body.error).toBe('gone');
+      expect(r.body.migrate?.stage).toBe('/api/github/stage');
+      expect(ThreatModelingJobModel.create).not.toHaveBeenCalled();
     });
   });
 

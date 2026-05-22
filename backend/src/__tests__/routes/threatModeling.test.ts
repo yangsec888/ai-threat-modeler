@@ -5,6 +5,13 @@
  */
 
 // Mock better-sqlite3 before any imports that use it
+jest.mock('../../utils/logger', () => ({
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  debug: jest.fn(),
+}));
+
 jest.mock('better-sqlite3', () => {
   const mockDb = {
     prepare: jest.fn(() => ({
@@ -256,129 +263,12 @@ describe('Threat Modeling Routes', () => {
   });
 
   describe('POST /api/threat-modeling', () => {
-    it('should create a threat modeling job with repoPath', async () => {
-      const mockJob = {
-        id: 'test-job-id',
-        user_id: 1,
-        repo_path: '/path/to/repo',
-        query: 'Test query',
-        status: 'pending',
-        repo_name: null,
-        git_branch: null,
-        git_commit: null,
-        created_at: new Date().toISOString(),
-      };
-      
-      ThreatModelingJobModel.create.mockReturnValue(mockJob);
-
-      const response = await request(app)
-        .post('/api/threat-modeling')
-        .send({
-          repoPath: '/path/to/repo',
-          query: 'Test query',
-        });
-
-      expect(response.status).toBe(200);
-      expect(response.body.status).toBe('success');
-      expect(response.body.message).toBe('Threat modeling job created');
-      expect(response.body.jobId).toBe('test-job-id');
-      // Query is optional - should use provided query or default
-      expect(ThreatModelingJobModel.create).toHaveBeenCalledWith(1, '/path/to/repo', 'Test query', null, null, null);
-    });
-
-    it('should create a threat modeling job without query (query loaded from YAML)', async () => {
-      const mockJob = {
-        id: 'test-job-id',
-        user_id: 1,
-        repo_path: '/path/to/repo',
-        query: 'Perform threat modeling analysis',
-        status: 'pending',
-        repo_name: null,
-        git_branch: null,
-        git_commit: null,
-        created_at: new Date().toISOString(),
-      };
-      
-      ThreatModelingJobModel.create.mockReturnValue(mockJob);
-
-      const response = await request(app)
-        .post('/api/threat-modeling')
-        .send({
-          repoPath: '/path/to/repo',
-        });
-
-      expect(response.status).toBe(200);
-      expect(response.body.status).toBe('success');
-      // Query is optional - when not provided, it's undefined (defaults handled in model or route)
-      expect(ThreatModelingJobModel.create).toHaveBeenCalledWith(
-        1, 
-        '/path/to/repo', 
-        undefined, 
-        null, 
-        null, 
-        null
-      );
-    });
-
-    it('should return 400 if neither repoPath nor file is provided', async () => {
-      const response = await request(app)
-        .post('/api/threat-modeling')
-        .send({});
-
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Repository ZIP file upload or repository path required');
-    });
-
-    it('should handle file upload', async () => {
-      const mockJob = {
-        id: 'test-job-id',
-        user_id: 1,
-        repo_path: '[UPLOADED] test.zip',
-        query: 'Test query',
-        status: 'pending',
-        repo_name: null,
-        git_branch: null,
-        git_commit: null,
-        created_at: new Date().toISOString(),
-      };
-      
-      ThreatModelingJobModel.create.mockReturnValue(mockJob);
-      (fs.readdirSync as jest.Mock).mockReturnValue(['file1.ts', 'file2.ts']);
-
-      const response = await request(app)
-        .post('/api/threat-modeling')
-        .set('x-test-file-upload', 'true')
-        .send({
-          query: 'Test query',
-        });
-
-      expect(response.status).toBe(200);
-      expect(response.body.status).toBe('success');
-      expect(response.body.message).toBe('Threat modeling job created');
-      // Query is optional - can be provided for database storage, but CLI uses YAML config
-    }, 10000); // Increase timeout for this test
-
-    it('should not rename backend/src directory (removed behavior)', async () => {
-      const mockJob = {
-        id: 'test-job-id',
-        user_id: 1,
-        repo_path: '/path/to/repo',
-        query: 'Test query',
-        status: 'pending',
-        created_at: new Date().toISOString(),
-      };
-      
-      ThreatModelingJobModel.create.mockReturnValue(mockJob);
-
-      await request(app)
-        .post('/api/threat-modeling')
-        .send({
-          repoPath: '/path/to/repo',
-          query: 'Test query',
-        });
-
-      // Verify that renameSync was NOT called for src directory
-      expect(fs.renameSync).not.toHaveBeenCalled();
+    it('returns 410 Gone with migration body (legacy one-shot removed)', async () => {
+      const response = await request(app).post('/api/threat-modeling').send({ repoPath: '/x' });
+      expect(response.status).toBe(410);
+      expect(response.body.error).toBe('gone');
+      expect(response.body.migrate?.stage).toBe('/api/threat-modeling/stage');
+      expect(ThreatModelingJobModel.create).not.toHaveBeenCalled();
     });
   });
 
@@ -476,8 +366,10 @@ describe('Threat Modeling Routes', () => {
         completed_at: new Date('2024-01-02').toISOString(),
       };
       
-      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
-      (fs.readFileSync as jest.Mock).mockReturnValue('# Threat Model Report\n\nContent');
+      ThreatModelingJobModel.findById.mockReturnValue({ ...mockJob, contextFields: null });
+      (fs.readFileSync as jest.Mock).mockReturnValue(
+        JSON.stringify({ threat_model_report: { metadata: {}, data_flow_diagram: null, threat_model: null, risk_registry: null } }),
+      );
 
       const response = await request(app)
         .get('/api/threat-modeling/jobs/job1');

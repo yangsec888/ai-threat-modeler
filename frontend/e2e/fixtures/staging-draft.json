@@ -1,0 +1,8 @@
+{
+  "projectSummary": "E2E sample web API",
+  "securityContext": "JWT auth, bcrypt passwords",
+  "deploymentContext": "Docker on AWS ECS",
+  "developerContext": "No raw SQL in handlers",
+  "suggestedExclusions": "tests/**, vendor/**",
+  "additionalContext": null
+}

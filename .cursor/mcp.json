@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "sast-ai": {
+      "command": "node",
+      "args": [
+        "/Users/sli/.cursor/extensions/capsule.vscode-sast-ai-0.9.2/bundled/mcp-server.mjs"
+      ],
+      "env": {
+        "SAST_AI_BASE_URL": "https://sast-ai-app-prod.vercel.app"
+      }
+    }
+  }
+}

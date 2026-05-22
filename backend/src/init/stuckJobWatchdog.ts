@@ -38,6 +38,7 @@ import * as path from 'path';
 import db from '../db/database';
 import { ThreatModelingJobModel } from '../models/threatModelingJob';
 import logger from '../utils/logger';
+import { ThreatModelingStagingModel } from '../models/threatModelingStaging';
 
 /** Defaults. Both can be overridden by env or by `startStuckJobWatchdog` args. */
 export const DEFAULT_WATCHDOG_INTERVAL_MS = 5 * 60 * 1000; // 5 min
@@ -171,6 +172,18 @@ export function runStuckJobSweep(thresholdMin: number = DEFAULT_WATCHDOG_THRESHO
 }
 
 /**
+ * GC stale staging rows (non-terminal only). Never touches consumed/cancelled/expired.
+ */
+export function runStagingGcSweep(thresholdMs: number = 30 * 60 * 1000): number {
+  const rows = ThreatModelingStagingModel.deleteStale(thresholdMs);
+  for (const row of rows) {
+    ThreatModelingStagingModel.deletePaths(row);
+    logger.info(`🩺 Staging GC: expired staging ${row.id} (was ${row.status})`);
+  }
+  return rows.length;
+}
+
+/**
  * Start the periodic watchdog. Returns a `stop()` function that clears the
  * timer (used by tests; the production server runs until process exit).
  *
@@ -200,6 +213,7 @@ export function startStuckJobWatchdog(
   const tick = () => {
     try {
       runStuckJobSweep(thresholdMin);
+      runStagingGcSweep();
     } catch (err) {
       // runStuckJobSweep already swallows per-row errors; this is a final
       // safety net so a sweep crash never kills the watchdog timer.

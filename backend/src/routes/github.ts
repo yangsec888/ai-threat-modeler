@@ -19,9 +19,12 @@ import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { requireJobScheduling } from '../middleware/permissions';
 import { GitHubTokenModel } from '../models/githubToken';
 import { ThreatModelingJobModel } from '../models/threatModelingJob';
+import { ThreatModelingStagingModel } from '../models/threatModelingStaging';
 import { SettingsModel } from '../models/settings';
 import { parseGitHubUrl } from '../utils/githubUrl';
-import { extractZip, processThreatModelingJob } from './threatModeling';
+import { extractZip } from '../services/zipExtract';
+import { scheduleStagingExtraction } from '../services/stagingOrchestrator';
+import { processThreatModelingJob } from './threatModeling';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -444,8 +447,18 @@ export async function downloadAndProcessGitHubRepo(
   }
 }
 
-// POST /api/github/import
-router.post('/import', authenticateToken, requireJobScheduling, async (req: AuthRequest, res: Response) => {
+export const GITHUB_LEGACY_GONE_BODY = {
+  error: 'gone',
+  message:
+    'POST /api/github/import has been removed. Use POST /api/github/stage followed by POST /api/threat-modeling/stage/:id/run.',
+  migrate: {
+    stage: '/api/github/stage',
+    run: '/api/threat-modeling/stage/:id/run',
+  },
+};
+
+// POST /api/github/stage — download zipball and run context extraction
+router.post('/stage', authenticateToken, requireJobScheduling, async (req: AuthRequest, res: Response) => {
   try {
     const body = req.body ?? {};
     const { repoUrl, gitRef, gitRefType, repoName } = body;
@@ -475,60 +488,81 @@ router.post('/import', authenticateToken, requireJobScheduling, async (req: Auth
     try {
       token = GitHubTokenModel.getDecrypted(userId);
     } catch (err) {
-      logger.warn('import: failed to load PAT, continuing unauthenticated', { error: err });
+      logger.warn('github.stage: failed to load PAT, continuing unauthenticated', { error: err });
     }
 
     const sourceUrl = `${parsed.normalizedUrl}@${gitRef}`;
-    const jobRepoPath = `[GITHUB] ${parsed.owner}/${parsed.repo}@${gitRef}`;
-    const job = ThreatModelingJobModel.create(
-      userId,
-      jobRepoPath,
-      undefined,
-      repoName?.trim() || parsed.repo,
-      gitRefType === 'branch' ? gitRef : null,
-      gitRefType === 'commit' ? gitRef : null,
-      {
-        sourceType: 'github',
-        sourceUrl,
-        gitRef,
-        gitRefType: gitRefType as RefType,
-      },
-    );
+    const displayRepoName = repoName?.trim() || parsed.repo;
 
-    logger.info('github.import.start', {
-      jobId: job.id,
+    const uploadsDir = path.join(process.cwd(), 'uploads', 'threat-modeling');
+    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+    const staging = ThreatModelingStagingModel.create({
       userId,
-      owner: parsed.owner,
-      repo: parsed.repo,
-      ref: gitRef,
-      refType: gitRefType,
-      hasToken: !!token,
+      sourceType: 'github',
+      sourceUrl,
+      repoName: displayRepoName,
+      gitBranch: gitRefType === 'branch' ? gitRef : null,
+      gitCommit: gitRefType === 'commit' ? gitRef : null,
+      gitRef,
+      gitRefType: gitRefType as RefType,
     });
 
-    // Fire-and-forget; the polling UI surfaces success/failure via job status.
-    void downloadAndProcessGitHubRepo(job.id, parsed.owner, parsed.repo, gitRef, token, userId);
+    const zipPath = path.join(uploadsDir, `github_staging_${staging.id}.zip`);
+    const extractedDir = path.join(uploadsDir, `extracted-staging-${staging.id}`);
+    const maxBytes = SettingsModel.getGitHubMaxArchiveSizeMb() * 1024 * 1024;
 
-    res.status(202).json({
-      status: 'success',
-      message: 'GitHub import started',
-      jobId: job.id,
-      job: {
-        id: job.id,
-        status: job.status,
-        repoPath: job.repo_path,
-        repoName: job.repo_name,
-        sourceType: job.source_type ?? 'github',
-        sourceUrl: job.source_url,
-        gitRef: job.git_ref,
-        gitRefType: job.git_ref_type,
-        createdAt: job.created_at,
-      },
+    void (async () => {
+      try {
+        const ghResponse = await fetchGitHubZipball(parsed.owner, parsed.repo, gitRef, token);
+        const mapped = mapGitHubError(ghResponse, 'Zipball download');
+        if (mapped) {
+          throw new Error(mapped.message);
+        }
+        if (!ghResponse.body) {
+          throw new Error('Zipball download returned no body');
+        }
+        await streamBodyToDiskWithCap(ghResponse.body, zipPath, maxBytes);
+        GitHubTokenModel.markUsed(userId);
+        await extractZip(zipPath, extractedDir);
+
+        ThreatModelingStagingModel.setExtractedPaths(staging.id, zipPath, extractedDir);
+        scheduleStagingExtraction(
+          staging.id,
+          extractedDir,
+          displayRepoName.replace(/[^a-zA-Z0-9._-]/g, '_') || 'repo',
+          parsed.owner,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        ThreatModelingStagingModel.markFailed(staging.id, message);
+        try {
+          if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+        } catch {
+          /* ignore */
+        }
+        try {
+          if (fs.existsSync(extractedDir)) fs.rmSync(extractedDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    })();
+
+    return res.status(202).json({
+      stagingId: staging.id,
+      status: 'pending',
     });
   } catch (error: unknown) {
-    logger.error('GitHub import error', { error });
+    logger.error('GitHub stage error', { error });
     const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({ error: 'Failed to start GitHub import', message });
+    return res.status(500).json({ error: 'Failed to stage GitHub repository', message });
   }
+});
+
+// POST /api/github/import — removed; migrate to staging flow
+router.post('/import', authenticateToken, requireJobScheduling, (_req: AuthRequest, res: Response) => {
+  res.status(410).json(GITHUB_LEGACY_GONE_BODY);
 });
 
 export { router as githubRoutes };

@@ -1,0 +1,46 @@
+---
+description: Prefer codebase-memory-mcp graph tools over grep/glob/file-search for code discovery in this repo.
+globs: **/*
+alwaysApply: true
+---
+
+# Codebase Knowledge Graph (codebase-memory-mcp)
+
+This project is indexed by `codebase-memory-mcp`. The MCP server exposes a knowledge graph of every function, class, route, type, and call edge in the repo. Using it is **~100× cheaper in tokens** and **much faster** than reading files one at a time.
+
+ALWAYS prefer the MCP graph tools below over `grep`, `glob`, `read_file`, or codebase-wide semantic search when you are answering structural questions about the code.
+
+## Priority order (use the first tool that fits the question)
+
+1. `search_graph` — locate symbols (functions, classes, routes, variables) by name pattern or kind.
+2. `trace_path` — trace callers (`direction:"inbound"`) or callees (`direction:"outbound"`) of a function across files/packages.
+3. `get_code_snippet` — read the source of a specific symbol by qualified name (no full-file read needed).
+4. `query_graph` — run Cypher-style queries for complex multi-hop patterns.
+5. `get_architecture` — get a high-level project summary (entry points, layers, top-level packages).
+6. `search_code` — text search **inside the graph's indexed source**, scoped to code (faster than repo-wide grep).
+7. `get_graph_schema` — list available node/edge kinds when you're not sure how to query.
+8. `detect_changes` — see which files changed since the last index, useful before relying on stale results.
+9. `index_status` / `list_projects` — sanity-check that this repo is indexed and fresh before querying.
+
+## When to fall back to grep / glob / read_file
+
+- String literals, error messages, log strings, config values, regexes.
+- Non-code files (Dockerfiles, shell scripts, YAML, JSON, Markdown).
+- The MCP tools return empty / insufficient results after a reasonable attempt.
+- You need to read a long block that spans multiple symbols (e.g. an entire route module).
+
+## Project name
+
+This repo is indexed under the project name `Users-sli-apps-sast-ai-app` (derived from the absolute path). Most tools accept either the project name or the absolute `repo_path` — when in doubt, pass `"project": "Users-sli-apps-sast-ai-app"`.
+
+## Examples
+
+- Find a route handler: `search_graph({ "name_pattern": ".*processRepoReview.*" })`
+- Who calls a function: `trace_path({ "function_name": "runFullRepoReview", "direction": "inbound" })`
+- What does a function call: `trace_path({ "function_name": "runFullRepoReview", "direction": "outbound", "max_depth": 3 })`
+- Read a function's source: `get_code_snippet({ "qualified_name": "backend/src/routes/codeReview.ts:runFullRepoReview" })`
+- High-level overview: `get_architecture({})`
+
+## Freshness
+
+If `detect_changes` reports a large diff against the indexed snapshot, ask to re-index with `index_repository({ "repo_path": "/Users/sli/apps/sast-ai-app", "mode": "full" })` before drawing conclusions from graph queries. `auto_index` is enabled, so a session-start refresh usually handles this automatically.

@@ -6,6 +6,11 @@
 
 import db, { ThreatModelingJob, ThreatModelingJobSourceType, ThreatModelingJobGitRefType } from '../db/database';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  parseContextFieldsJson,
+  serializeContextFields,
+  type ContextFields,
+} from '../types/contextFields';
 
 export interface ThreatModelingJobSourceMeta {
   sourceType?: ThreatModelingJobSourceType | null;
@@ -14,7 +19,33 @@ export interface ThreatModelingJobSourceMeta {
   gitRefType?: ThreatModelingJobGitRefType | null;
 }
 
+export interface CreateThreatModelingJobParams {
+  userId: number;
+  repoPath: string;
+  query?: string;
+  repoName?: string | null;
+  gitBranch?: string | null;
+  gitCommit?: string | null;
+  sourceMeta?: ThreatModelingJobSourceMeta;
+  context?: string | null;
+  contextFields?: ContextFields | null;
+  extractedDir?: string | null;
+  uploadedZipPath?: string | null;
+}
+
+export interface ThreatModelingJobDto extends ThreatModelingJob {
+  contextFields: ContextFields | null;
+}
+
+function enrichJob(job: ThreatModelingJob): ThreatModelingJobDto {
+  return {
+    ...job,
+    contextFields: parseContextFieldsJson(job.context_fields),
+  };
+}
+
 export class ThreatModelingJobModel {
+  static create(params: CreateThreatModelingJobParams): ThreatModelingJobDto;
   static create(
     userId: number,
     repoPath: string,
@@ -22,36 +53,63 @@ export class ThreatModelingJobModel {
     repoName?: string | null,
     gitBranch?: string | null,
     gitCommit?: string | null,
-    sourceMeta?: ThreatModelingJobSourceMeta
-  ): ThreatModelingJob {
+    sourceMeta?: ThreatModelingJobSourceMeta,
+  ): ThreatModelingJobDto;
+  static create(
+    paramsOrUserId: CreateThreatModelingJobParams | number,
+    repoPath?: string,
+    query?: string,
+    repoName?: string | null,
+    gitBranch?: string | null,
+    gitCommit?: string | null,
+    sourceMeta?: ThreatModelingJobSourceMeta,
+  ): ThreatModelingJobDto {
+    const params: CreateThreatModelingJobParams =
+      typeof paramsOrUserId === 'number'
+        ? {
+            userId: paramsOrUserId,
+            repoPath: repoPath!,
+            query,
+            repoName,
+            gitBranch,
+            gitCommit,
+            sourceMeta,
+          }
+        : paramsOrUserId;
     const jobId = uuidv4();
+    const contextFieldsJson = serializeContextFields(params.contextFields);
     const stmt = db.prepare(`
       INSERT INTO threat_modeling_jobs (
         id, user_id, repo_path, query, status,
         repo_name, git_branch, git_commit,
-        source_type, source_url, git_ref, git_ref_type
+        source_type, source_url, git_ref, git_ref_type,
+        context, context_fields, extracted_dir, uploaded_zip_path
       )
-      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
       jobId,
-      userId,
-      repoPath,
-      query || null,
-      repoName || null,
-      gitBranch || null,
-      gitCommit || null,
-      sourceMeta?.sourceType ?? 'upload',
-      sourceMeta?.sourceUrl ?? null,
-      sourceMeta?.gitRef ?? null,
-      sourceMeta?.gitRefType ?? null,
+      params.userId,
+      params.repoPath,
+      params.query || null,
+      params.repoName || null,
+      params.gitBranch || null,
+      params.gitCommit || null,
+      params.sourceMeta?.sourceType ?? 'upload',
+      params.sourceMeta?.sourceUrl ?? null,
+      params.sourceMeta?.gitRef ?? null,
+      params.sourceMeta?.gitRefType ?? null,
+      params.context ?? null,
+      contextFieldsJson,
+      params.extractedDir ?? null,
+      params.uploadedZipPath ?? null,
     );
 
     return this.findById(jobId);
   }
 
-  static findById(id: string): ThreatModelingJob {
+  static findById(id: string): ThreatModelingJobDto {
     const stmt = db.prepare('SELECT * FROM threat_modeling_jobs WHERE id = ?');
     const job = stmt.get(id) as ThreatModelingJob | undefined;
     
@@ -59,20 +117,20 @@ export class ThreatModelingJobModel {
       throw new Error('Job not found');
     }
     
-    return job;
+    return enrichJob(job);
   }
 
-  static findByUserId(userId: number, limit: number = 50): ThreatModelingJob[] {
+  static findByUserId(userId: number, limit: number = 50): ThreatModelingJobDto[] {
     const stmt = db.prepare(`
       SELECT * FROM threat_modeling_jobs 
       WHERE user_id = ? 
       ORDER BY created_at DESC 
       LIMIT ?
     `);
-    return stmt.all(userId, limit) as ThreatModelingJob[];
+    return (stmt.all(userId, limit) as ThreatModelingJob[]).map(enrichJob);
   }
 
-  static findAllWithUsers(limit: number = 50): Array<ThreatModelingJob & { username: string }> {
+  static findAllWithUsers(limit: number = 50): Array<ThreatModelingJobDto & { username: string }> {
     const stmt = db.prepare(`
       SELECT tmj.*, u.username 
       FROM threat_modeling_jobs tmj
@@ -80,7 +138,10 @@ export class ThreatModelingJobModel {
       ORDER BY tmj.created_at DESC 
       LIMIT ?
     `);
-    return stmt.all(limit) as Array<ThreatModelingJob & { username: string }>;
+    return (stmt.all(limit) as Array<ThreatModelingJob & { username: string }>).map((row) => ({
+      ...enrichJob(row),
+      username: row.username,
+    }));
   }
 
   static updateStatus(
@@ -91,7 +152,7 @@ export class ThreatModelingJobModel {
     dataFlowDiagramPath?: string | null,
     threatModelPath?: string | null,
     riskRegistryPath?: string | null
-  ): ThreatModelingJob {
+  ): ThreatModelingJobDto {
     const updates: string[] = ['status = ?', 'updated_at = CURRENT_TIMESTAMP'];
     const values: unknown[] = [status];
 
@@ -140,23 +201,23 @@ export class ThreatModelingJobModel {
     dataFlowDiagramPath: string | null,
     threatModelPath: string | null,
     riskRegistryPath: string | null
-  ): ThreatModelingJob {
+  ): ThreatModelingJobDto {
     return this.updateStatus(
       id,
       'completed',
-      threatModelPath, // report_path for backward compatibility
-      null, // errorMessage
+      threatModelPath,
+      null,
       dataFlowDiagramPath,
       threatModelPath,
       riskRegistryPath
     );
   }
 
-  static updateErrorMessage(id: string, errorMessage: string): ThreatModelingJob {
+  static updateErrorMessage(id: string, errorMessage: string): ThreatModelingJobDto {
     return this.updateStatus(id, 'failed', null, errorMessage);
   }
 
-  static updateMetadata(id: string, repoName: string | null, gitBranch: string | null, gitCommit: string | null): ThreatModelingJob {
+  static updateMetadata(id: string, repoName: string | null, gitBranch: string | null, gitCommit: string | null): ThreatModelingJobDto {
     const stmt = db.prepare(`
       UPDATE threat_modeling_jobs 
       SET repo_name = ?, git_branch = ?, git_commit = ?, updated_at = CURRENT_TIMESTAMP
@@ -166,7 +227,7 @@ export class ThreatModelingJobModel {
     return this.findById(id);
   }
 
-  static updateExecutionMetrics(id: string, executionDuration: number | null, apiCost: string | null): ThreatModelingJob {
+  static updateExecutionMetrics(id: string, executionDuration: number | null, apiCost: string | null): ThreatModelingJobDto {
     const stmt = db.prepare(`
       UPDATE threat_modeling_jobs 
       SET execution_duration = ?, api_cost = ?, updated_at = CURRENT_TIMESTAMP
@@ -181,4 +242,3 @@ export class ThreatModelingJobModel {
     stmt.run(id);
   }
 }
-

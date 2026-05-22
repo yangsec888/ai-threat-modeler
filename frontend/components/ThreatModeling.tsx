@@ -14,7 +14,7 @@ import { ToastContainer } from '@/components/ui/toast'
 import { useToast } from '@/hooks/useToast'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
-import { FolderOpen, Download, Eye, Loader2, CheckCircle, XCircle, Clock, Trash2, Upload, FileSpreadsheet, FileText, ChevronDown, ChevronRight, Github, ExternalLink } from 'lucide-react'
+import { FolderOpen, Download, Eye, Loader2, CheckCircle, XCircle, Clock, Trash2, Upload, FileSpreadsheet, FileText, ChevronDown, ChevronRight, Github, ExternalLink, Search } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { GitHubImport } from '@/components/GitHubImport'
 import { formatDateWithTimezone } from '@/utils/date'
@@ -22,6 +22,8 @@ import { sanitizeErrorMessage } from '@/lib/security'
 import JSZip from 'jszip'
 import type { DataFlowDiagram, ThreatModel, RiskRegistry, ReportMetadata, Recommendation, Threat, Risk } from '@/types/threatModel'
 import type { ThreatModelingJob } from '@/types/threatModelingJob'
+import { ContextFieldsForm } from '@/components/ContextFieldsForm'
+import { useThreatModelingStaging } from '@/hooks/useThreatModelingStaging'
 import { DfdTabContent } from '@/components/dfd/DfdTabContent'
 import type { DfdCanvasHandle } from '@/components/dfd/DfdCanvas'
 
@@ -78,6 +80,7 @@ function StrideBadge({ category }: { category: string }) {
 
 export function ThreatModeling() {
   const { canScheduleJobs, user } = useAuth()
+  const uploadStaging = useThreatModelingStaging()
   const isAuditor = user?.role === 'Auditor'
   const [selectedDirectory, setSelectedDirectory] = useState<FileSystemDirectoryHandle | null>(null)
   const [directoryName, setDirectoryName] = useState('')
@@ -260,50 +263,52 @@ export function ThreatModeling() {
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const buildZipFromSelection = async (): Promise<File> => {
+    if (selectedDirectory instanceof FileSystemDirectoryHandle) {
+      info('Creating ZIP file from directory...')
+      const zip = new JSZip()
+      await addDirectoryToZip(zip, selectedDirectory)
+      info('Compressing files...')
+      const zipBlob = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 },
+      })
+      return new File([zipBlob], `${directoryName || 'repository'}.zip`, {
+        type: 'application/zip',
+      })
+    }
+    const zipFile = (selectedDirectory as unknown as { zipFile?: File })?.zipFile
+    if (!zipFile) throw new Error('Failed to create ZIP file')
+    return zipFile
+  }
+
+  const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault()
-    
     if (!selectedDirectory) {
       showError('Please select a directory to upload')
       return
     }
-
     setLoading(true)
     setUploading(true)
-
     try {
-      let zipFile: File
+      const zipFile = await buildZipFromSelection()
+      info('Uploading repository for context analysis...')
+      await uploadStaging.startUpload(zipFile, directoryName || undefined)
+      success('Repository staged. Review the generated context, then run the threat model.')
+    } catch (err: unknown) {
+      showError(sanitizeErrorMessage(err, 'Failed to analyze repository'))
+    } finally {
+      setLoading(false)
+      setUploading(false)
+    }
+  }
 
-      // Check if we have a FileSystemDirectoryHandle (modern browsers)
-      if (selectedDirectory instanceof FileSystemDirectoryHandle) {
-        // Create ZIP from directory
-        info('Creating ZIP file from directory...')
-        const zip = new JSZip()
-        await addDirectoryToZip(zip, selectedDirectory)
-        
-        info('Compressing files...')
-        const zipBlob = await zip.generateAsync({ 
-          type: 'blob',
-          compression: 'DEFLATE',
-          compressionOptions: { level: 6 }
-        })
-        
-        zipFile = new File([zipBlob], `${directoryName || 'repository'}.zip`, { 
-          type: 'application/zip' 
-        })
-        info('ZIP file created. Uploading...')
-      } else {
-        // Fallback: use pre-created ZIP from webkitdirectory
-        zipFile = (selectedDirectory as any).zipFile
-        if (!zipFile) {
-          throw new Error('Failed to create ZIP file')
-        }
-        info('Uploading directory...')
-      }
-
-      // Query is loaded from built-in YAML config file, not passed from frontend
-      const response = await api.threatModeling(zipFile)
-      
+  const handleRunThreatModel = async () => {
+    setLoading(true)
+    try {
+      const response = await uploadStaging.run()
+      if (!response) return
       const newJob: ThreatModelingJob = {
         id: response.jobId,
         repoPath: response.job.repoPath,
@@ -313,27 +318,24 @@ export function ThreatModeling() {
         repoName: response.job.repoName || null,
         gitBranch: response.job.gitBranch || null,
         gitCommit: response.job.gitCommit || null,
+        context: response.job.context ?? null,
+        contextFields: response.job.contextFields ?? null,
         executionDuration: response.job.executionDuration || null,
         apiCost: response.job.apiCost || null,
         createdAt: response.job.createdAt,
         updatedAt: response.job.createdAt,
         completedAt: null,
       }
-
       setJobs((prev) => [newJob, ...prev])
       setPollingJobs((prev) => new Set([...prev, response.jobId]))
-      
-      success('Threat modeling job created! The directory has been uploaded and will be analyzed. Source code will be removed after analysis.')
-      
-      // Clear form
+      success('Threat modeling job started!')
+      uploadStaging.reset()
       setSelectedDirectory(null)
       setDirectoryName('')
     } catch (err: unknown) {
-      showError(sanitizeErrorMessage(err, 'Failed to create threat modeling job'))
+      showError(sanitizeErrorMessage(err, 'Failed to start threat modeling job'))
     } finally {
       setLoading(false)
-      setUploading(false)
-      // Info toasts will auto-close after their duration
     }
   }
 
@@ -616,60 +618,113 @@ export function ThreatModeling() {
               </TabsTrigger>
             </TabsList>
             <TabsContent value="upload" className="pt-4">
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label htmlFor="repository" className="text-sm font-medium mb-2 block">
-                    Repository Directory
-                  </label>
-                  <div className="flex gap-2">
-                    <div className="flex-1 border rounded-md px-3 py-2 bg-muted/50 flex items-center">
-                      {directoryName ? (
-                        <span className="text-sm flex items-center gap-2">
-                          <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                          {directoryName}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">No directory selected</span>
-                      )}
+              {uploadStaging.status === 'expired' ? (
+                <div className="space-y-4">
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                    {uploadStaging.error ?? 'Session expired — please re-import the repository.'}
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => uploadStaging.reset()}>
+                    Reset
+                  </Button>
+                </div>
+              ) : uploadStaging.status === 'idle' ? (
+                <form onSubmit={handleAnalyze} className="space-y-4">
+                  <div>
+                    <label htmlFor="repository" className="text-sm font-medium mb-2 block">
+                      Repository Directory
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="flex-1 border rounded-md px-3 py-2 bg-muted/50 flex items-center">
+                        {directoryName ? (
+                          <span className="text-sm flex items-center gap-2">
+                            <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                            {directoryName}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">No directory selected</span>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleBrowseDirectory}
+                        className="flex items-center gap-2"
+                        disabled={uploading}
+                      >
+                        <FolderOpen className="h-4 w-4" />
+                        {directoryName ? 'Change Directory' : 'Select Directory'}
+                      </Button>
                     </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Select your local code repository directory. It will be uploaded for context analysis, then you can review and edit deployment context before running the threat model.
+                    </p>
+                  </div>
+                  <Button type="submit" disabled={loading || !selectedDirectory}>
+                    {loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {uploading ? 'Uploading...' : 'Analyzing...'}
+                      </>
+                    ) : (
+                      <>
+                        <Search className="mr-2 h-4 w-4" />
+                        Analyze repository
+                      </>
+                    )}
+                  </Button>
+                </form>
+              ) : (
+                <div className="space-y-4">
+                  {uploadStaging.status === 'extracting' && (
+                    <p className="text-sm text-muted-foreground flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating context from repository…
+                    </p>
+                  )}
+                  <ContextFieldsForm
+                    fields={uploadStaging.fields}
+                    status={
+                      uploadStaging.status === 'running'
+                        ? 'ready'
+                        : uploadStaging.status === 'extracting'
+                          ? 'extracting'
+                          : uploadStaging.status === 'failed'
+                            ? 'failed'
+                            : 'ready'
+                    }
+                    onChange={uploadStaging.setField}
+                    disabled={uploadStaging.status === 'running'}
+                  />
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
-                      variant="outline"
-                      onClick={handleBrowseDirectory}
-                      className="flex items-center gap-2"
-                      disabled={uploading}
+                      onClick={() => void handleRunThreatModel()}
+                      disabled={
+                        loading ||
+                        uploadStaging.status === 'extracting' ||
+                        uploadStaging.status === 'running'
+                      }
                     >
-                      <FolderOpen className="h-4 w-4" />
-                      {directoryName ? 'Change Directory' : 'Select Directory'}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Select your local code repository directory. It will be uploaded to the server for analysis and automatically removed after processing to protect your source code.
-                  </p>
-                </div>
-                <Button type="submit" disabled={loading || !selectedDirectory}>
-                  {loading ? (
-                    <>
-                      {uploading ? (
-                        <>
-                          <Upload className="mr-2 h-4 w-4 animate-pulse" />
-                          Uploading & Creating Job...
-                        </>
-                      ) : (
+                      {uploadStaging.status === 'running' ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Creating Job...
+                          Starting…
                         </>
+                      ) : (
+                        'Run threat model'
                       )}
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="mr-2 h-4 w-4" />
-                      Upload & Create Threat Modeling Job
-                    </>
-                  )}
-                </Button>
-              </form>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => void uploadStaging.cancel()}
+                      disabled={uploadStaging.status === 'running'}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
             </TabsContent>
             <TabsContent value="github" className="pt-4">
               <GitHubImport
@@ -834,6 +889,43 @@ export function ThreatModeling() {
           )}
           </CardContent>
         </Card>
+
+      {selectedJob &&
+        (selectedJob.contextFields || selectedJob.context) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Context used</CardTitle>
+              <CardDescription>Deployment and environment context passed to the threat modeler</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {selectedJob.contextFields ? (
+                <>
+                  {(
+                    [
+                      ['projectSummary', 'Project summary'],
+                      ['securityContext', 'Security'],
+                      ['deploymentContext', 'Deployment'],
+                      ['developerContext', 'Developer guidance'],
+                      ['suggestedExclusions', 'Exclusions'],
+                      ['additionalContext', 'Additional notes'],
+                    ] as const
+                  ).map(([key, label]) => {
+                    const val = selectedJob.contextFields?.[key]
+                    if (!val?.trim()) return null
+                    return (
+                      <details key={key} className="rounded border px-3 py-2">
+                        <summary className="cursor-pointer font-medium">{label}</summary>
+                        <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{val}</p>
+                      </details>
+                    )
+                  })}
+                </>
+              ) : (
+                <p className="whitespace-pre-wrap text-muted-foreground">{selectedJob.context}</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
       {/* Report Preview */}
       {selectedJob && selectedJob.status === 'completed' && (

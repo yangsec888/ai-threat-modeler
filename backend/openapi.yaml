@@ -612,9 +612,38 @@ paths:
     post:
       tags:
         - Threat Modeling
-      summary: Create threat modeling job
+      summary: '(Removed) Legacy one-shot job creation'
       description: |
-        Create a new threat modeling job by uploading a ZIP file containing the codebase.
+        **Removed.** Returns `410 Gone`. Use `POST /api/threat-modeling/stage` then `POST /api/threat-modeling/stage/{id}/run`.
+      responses:
+        '410':
+          description: Endpoint removed — use staging flow
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: gone
+                  message:
+                    type: string
+                  migrate:
+                    type: object
+                    properties:
+                      stage:
+                        type: string
+                      run:
+                        type: string
+
+  /api/threat-modeling/stage:
+    post:
+      tags:
+        - Threat Modeling
+      summary: Stage repository for context extraction
+      description: |
+        Upload a ZIP, extract it, and run `context_extractor` asynchronously.
+        Poll `GET /api/threat-modeling/stage/{id}` until `status` is `ready` or `failed`.
         Requires Admin or Operator role.
       requestBody:
         required: true
@@ -628,47 +657,107 @@ paths:
                 repository:
                   type: string
                   format: binary
-                  description: ZIP file containing the codebase (max 2GB)
-                query:
-                  type: string
-                  description: Custom query for threat modeling
-                  default: Perform threat modeling analysis
                 repoName:
                   type: string
-                  description: Repository name (auto-detected from ZIP if not provided)
                 gitBranch:
                   type: string
-                  description: Git branch name
                 gitCommit:
                   type: string
-                  description: Git commit hash
       responses:
-        '200':
-          description: Threat modeling job created successfully
+        '202':
+          description: Staging started
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  status:
-                    type: string
-                    example: success
-                  message:
-                    type: string
-                    example: Threat modeling job created
-                  jobId:
+                  stagingId:
                     type: string
                     format: uuid
-                  job:
-                    $ref: '#/components/schemas/ThreatModelingJob'
+                  status:
+                    $ref: '#/components/schemas/StagingStatus'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '413':
+          description: ZIP too large
         '500':
           $ref: '#/components/responses/InternalError'
+
+  /api/threat-modeling/stage/{id}:
+    get:
+      tags:
+        - Threat Modeling
+      summary: Get staging status and draft context
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Staging row
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreatModelingStaging'
+        '404':
+          description: Not found or expired
+    delete:
+      tags:
+        - Threat Modeling
+      summary: Cancel staging
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Cancelled
+
+  /api/threat-modeling/stage/{id}/run:
+    post:
+      tags:
+        - Threat Modeling
+      summary: Run threat model from staging
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contextFields:
+                  $ref: '#/components/schemas/ContextFields'
+      responses:
+        '200':
+          description: Job created and processing started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId:
+                    type: string
+                    format: uuid
+                  job:
+                    $ref: '#/components/schemas/ThreatModelingJob'
+        '409':
+          description: Staging not ready or already consumed
 
   /api/threat-modeling/jobs:
     get:
@@ -1456,10 +1545,78 @@ components:
           type: string
           format: date-time
           nullable: true
+        context:
+          type: string
+          nullable: true
+          maxLength: 8000
+          description: Flattened context passed to agent-run as -c
+        contextFields:
+          allOf:
+            - $ref: '#/components/schemas/ContextFields'
+          nullable: true
         owner:
           type: string
           description: Username of job owner (only for Auditors)
           example: john_doe
+
+    ContextFields:
+      type: object
+      additionalProperties: false
+      properties:
+        projectSummary:
+          type: string
+          nullable: true
+          maxLength: 500
+        securityContext:
+          type: string
+          nullable: true
+          maxLength: 500
+        deploymentContext:
+          type: string
+          nullable: true
+          maxLength: 500
+        developerContext:
+          type: string
+          nullable: true
+          maxLength: 2000
+        suggestedExclusions:
+          type: string
+          nullable: true
+          maxLength: 500
+        additionalContext:
+          type: string
+          nullable: true
+          maxLength: 2000
+
+    ThreatModelingStaging:
+      type: object
+      properties:
+        stagingId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/StagingStatus'
+        draftContextFields:
+          allOf:
+            - $ref: '#/components/schemas/ContextFields'
+          nullable: true
+        extractionError:
+          type: string
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+
+    StagingStatus:
+      type: string
+      enum:
+        - pending
+        - extracting
+        - ready
+        - failed
+        - consumed
+        - cancelled
+        - expired
 
     JobStatus:
       type: string

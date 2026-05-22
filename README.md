@@ -33,6 +33,37 @@ Then:
 > subcommands that don't start a container (`down`, `ps`, `logs`) still work
 > when the variable is unset.
 
+## 🧭 Two-Step Threat Modeling (v1.7.0+)
+
+Both sources — ZIP upload **and** GitHub import — now run a two-step
+**stage → run** flow so the threat modeler agent gets concrete deployment
+context instead of guessing at it from the source tree alone.
+
+1. **Stage** — click **Analyze repository**. The backend extracts the source
+   into a per-staging temp dir and runs `appsec-agent` in the
+   `context_extractor` role (Haiku, single-turn, schema-constrained JSON).
+2. **Review** — five fields auto-populate in the UI: **Project summary**,
+   **Security context**, **Deployment context**, **Developer guidance**, and
+   **Suggested exclusions**. A sixth field, **Additional notes**, is free
+   for you to type anything else (compliance scope, threat-model framing,
+   "ignore the legacy `/scripts` dir", etc.). Each field is independently
+   editable; leave any of them blank if not relevant.
+3. **Run** — click **Run threat model**. The populated fields are
+   concatenated server-side with stable labels (`Project: …`,
+   `Deployment: …`, `Additional notes: …`, …), capped at 8 000 characters,
+   and passed to `agent-run -r threat_modeler` via `-c <text>`. Empty
+   fields are skipped; if every field is blank the `-c` flag is omitted
+   entirely so the threat modeler still runs without context.
+
+If extraction fails (network, agent error, schema mismatch) the UI shows
+a yellow **"Couldn't auto-generate context — fill in any combination of
+fields below, or leave them all blank to run without context"** banner
+and the **Run** button stays enabled — you can still proceed manually.
+
+Staging rows live for 30 minutes and are GC'd by the existing stuck-job
+watchdog. A `Cancel` button at any point removes the staging row and the
+extracted source on disk.
+
 ## 🐙 Import from GitHub
 
 You can run a threat model directly against a GitHub repository, no local
@@ -40,9 +71,11 @@ checkout required.
 
 1. **Public repo** — go to **Threat Modeling → Import from GitHub**, paste the
    repo URL (`https://github.com/owner/repo`), click **Look up**, choose a
-   branch / tag / commit, and click **Import & Create Job**. The backend
-   downloads the GitHub zipball, extracts it under `backend/uploads/`, runs
-   the analysis pipeline, and removes the source code when finished.
+   branch / tag / commit, click **Analyze repository**, then **Run threat
+   model** once the context fields are reviewed (see _Two-Step Threat
+   Modeling_ above). The backend downloads the GitHub zipball, extracts it
+   under `backend/uploads/`, stages context, runs the analysis pipeline, and
+   removes the source code when finished.
 2. **Private repo** — first add a GitHub Personal Access Token under
    **Settings → GitHub** (`repo` scope for private, `public_repo` for public
    only). The token is encrypted at rest with AES-256-GCM and is **never
@@ -118,6 +151,7 @@ docker-compose ps
   - Two source paths via tabbed UI:
     - **Upload directory** - bundle a local repository as a ZIP for analysis
     - **Import from GitHub** - paste a `https://github.com/owner/repo` URL, pick a branch / tag / commit, and the backend downloads the zipball directly
+  - **Two-step stage → run flow (v1.7.0+):** every job goes through `appsec-agent`'s `context_extractor` (Haiku) to auto-draft five context fields — project summary, security context, deployment context, developer guidance, suggested exclusions — plus a free-form "additional notes" field. All six are user-editable; the populated text is concatenated and passed to the threat modeler as `-c <text>`. See the _Two-Step Threat Modeling_ section above
   - Public repos work out of the box; private repos use a per-user encrypted Personal Access Token configured under **Settings → GitHub**
   - Structured JSON output with predefined schema (powered by appsec-agent v1.6+)
   - Interactive threat-aware Data Flow Diagrams with pan/zoom, node search, type/severity filters, and trust boundary grouping (React Flow canvas)
@@ -207,7 +241,7 @@ threat-model-ai/
      - Claude Code Max Output Tokens (default: 32,000)
 
 3. **Start Using the Application**
-   - **Threat Modeling**: Upload ZIP files of repositories for comprehensive threat analysis
+   - **Threat Modeling**: Upload a ZIP or import from GitHub, click **Analyze repository** to auto-extract deployment context, review/edit the six fields, then **Run threat model** for a full STRIDE analysis. See _Two-Step Threat Modeling_ above
    - **Chat Interface**: Interact with the agent directly through the chat interface
 
 4. **Customize Workflows** (Advanced)

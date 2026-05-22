@@ -10,131 +10,31 @@ import * as fs from 'fs';
 import { execSync, spawn, ChildProcess } from 'child_process';
 import archiver from 'archiver';
 import multer from 'multer';
-import yauzl from 'yauzl';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { requireJobScheduling } from '../middleware/permissions';
 import { ThreatModelingJobModel } from '../models/threatModelingJob';
 import { SettingsModel } from '../models/settings';
 import db from '../db/database';
 import logger from '../utils/logger';
+import { findAgentRunPath } from '../services/agentRunPath';
+import { extractZip } from '../services/zipExtract';
+import { listPopulatedContextFieldNames } from '../types/contextFields';
+import {
+  awaitAgentChildExit,
+  type AgentChildExitResult,
+} from '../utils/awaitAgentChildExit';
+import {
+  registerThreatModelingStagingRoutes,
+  LEGACY_GONE_BODY,
+} from './threatModelingStaging';
+
+export { awaitAgentChildExit, type AgentChildExitResult };
+export { extractZip };
 
 const router = Router();
 
 // Base directory name for reports (relative to process.cwd())
 const REPORTS_DIR_NAME = 'threat-modeling-reports';
-
-/**
- * Result of awaiting an agent-run child process.
- *
- * `exitCode` is the OS exit code (or null if killed by a signal).
- * `signal` is the terminating signal name (or null if exited normally).
- * `forced` is true if we resolved on the post-exit grace timeout because
- *  'close' never fired (i.e. stdio FDs lingered after the immediate child
- *  terminated). Useful for telemetry and for tests.
- */
-export interface AgentChildExitResult {
-  exitCode: number | null;
-  signal: NodeJS.Signals | null;
-  forced: boolean;
-}
-
-/**
- * Wait for an agent-run child process to exit, robust against the
- * "close never fires" hang we hit in v1.6.3.
- *
- * Why this helper exists
- * ----------------------
- * Node's `child.on('close', ...)` waits for ALL stdio FDs to drain. If the
- * agent forks a grandchild (e.g. the Claude Code helper that appsec-agent
- * spawns) that inherits stdout/stderr and exits in a way that doesn't
- * release the pipes promptly, 'close' can stall indefinitely. We observed
- * a job stuck in 'processing' for >25 minutes despite the agent finishing
- * and writing a complete threat_model_report.json. The parent stayed in
- * `await` waiting on a 'close' event that never arrived.
- *
- * The fix uses `child.on('exit', ...)` as the truth source — it fires when
- * the immediate child process terminates, regardless of stdio state — and
- * gives 'close' a short grace window to deliver any tail output, then
- * forcibly destroys the streams and resolves anyway. This guarantees the
- * caller's promise always settles within `graceMs` of the immediate-child
- * exit, removing any possibility of an indefinite hang.
- *
- * Behaviour:
- * - Resolves with the exit code/signal as soon as 'close' fires (happy path).
- * - If 'exit' fires but 'close' has not fired within `graceMs`, destroys
- *   stdout/stderr, sets `forced: true`, and resolves with the captured exit
- *   code from 'exit'.
- * - Rejects if the child fails to spawn ('error' event) or if it terminates
- *   by signal with a null exit code.
- * - Resolves (does not reject) on non-zero exit codes — callers decide
- *   whether to treat that as a job failure based on whether reports were
- *   generated.
- */
-export function awaitAgentChildExit(
-  childProcess: ChildProcess,
-  jobId: string,
-  options: { graceMs?: number } = {},
-): Promise<AgentChildExitResult> {
-  const graceMs = options.graceMs ?? 10_000;
-  return new Promise<AgentChildExitResult>((resolve, reject) => {
-    let settled = false;
-    let exitObserved = false;
-    let observedExitCode: number | null = null;
-    let observedSignal: NodeJS.Signals | null = null;
-    let postExitTimer: NodeJS.Timeout | null = null;
-
-    const finish = (action: () => void) => {
-      if (settled) return;
-      settled = true;
-      if (postExitTimer) {
-        clearTimeout(postExitTimer);
-        postExitTimer = null;
-      }
-      action();
-    };
-
-    childProcess.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
-      exitObserved = true;
-      observedExitCode = code;
-      observedSignal = signal;
-      logger.info(`🏁 agent-run exited (event=exit) code=${code ?? 'null'} signal=${signal ?? 'none'}`);
-
-      postExitTimer = setTimeout(() => {
-        if (settled) return;
-        logger.warn(
-          `⏱️  'close' did not fire ${graceMs}ms after 'exit'; forcing stdio shutdown to unblock job ${jobId}`,
-        );
-        try { childProcess.stdout?.destroy(); } catch { /* ignore */ }
-        try { childProcess.stderr?.destroy(); } catch { /* ignore */ }
-        if (code === null) {
-          finish(() =>
-            reject(new Error(`agent-run process terminated by signal: ${signal || 'unknown'}`)),
-          );
-        } else {
-          finish(() => resolve({ exitCode: code, signal, forced: true }));
-        }
-      }, graceMs);
-    });
-
-    childProcess.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
-      const finalCode = exitObserved ? observedExitCode : code;
-      const finalSignal = exitObserved ? observedSignal : signal;
-      if (finalCode === null) {
-        finish(() =>
-          reject(
-            new Error(`agent-run process terminated by signal: ${finalSignal || 'unknown'}`),
-          ),
-        );
-      } else {
-        finish(() => resolve({ exitCode: finalCode, signal: finalSignal, forced: false }));
-      }
-    });
-
-    childProcess.on('error', (error: Error) => {
-      finish(() => reject(new Error(`Failed to execute agent-run: ${error.message}`)));
-    });
-  });
-}
 
 /**
  * Resolve a report path to an absolute path
@@ -230,106 +130,6 @@ const upload = multer({
     }
   }
 });
-
-// Find agent-run CLI script path
-function findAgentRunPath(): string {
-  const possiblePaths = [
-    // Published package (dist/bin/)
-    path.join(process.cwd(), 'node_modules', 'appsec-agent', 'dist', 'bin', 'agent-run.js'),
-    // Local file: link (dist/bin/)
-    path.join(__dirname, '..', '..', '..', 'appsec-agent', 'dist', 'bin', 'agent-run.js'),
-    path.join(__dirname, '..', '..', '..', '..', 'appsec-agent', 'dist', 'bin', 'agent-run.js'),
-    path.join(process.cwd(), '..', 'appsec-agent', 'dist', 'bin', 'agent-run.js'),
-    // Legacy paths (bin/ without dist/)
-    path.join(process.cwd(), 'node_modules', 'appsec-agent', 'bin', 'agent-run.js'),
-    path.join(__dirname, '..', '..', '..', 'appsec-agent', 'bin', 'agent-run.js'),
-    path.join(__dirname, '..', '..', '..', '..', 'appsec-agent', 'bin', 'agent-run.js'),
-    path.join(process.cwd(), '..', 'appsec-agent', 'bin', 'agent-run.js'),
-  ];
-
-  for (const agentRunPath of possiblePaths) {
-    if (fs.existsSync(agentRunPath)) {
-      return agentRunPath;
-    }
-  }
-
-  throw new Error(`agent-run script not found. Tried paths: ${possiblePaths.join(', ')}`);
-}
-
-// Helper function to extract ZIP file to a directory
-export function extractZip(zipPath: string, extractTo: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    yauzl.open(zipPath, { lazyEntries: true }, (err: Error | null, zipfile: yauzl.ZipFile | undefined) => {
-      if (err) {
-        return reject(err);
-      }
-
-      if (!zipfile) {
-        return reject(new Error('Failed to open ZIP file'));
-      }
-
-      // Ensure extract directory exists
-      if (!fs.existsSync(extractTo)) {
-        fs.mkdirSync(extractTo, { recursive: true });
-      }
-
-      zipfile.readEntry();
-      
-      zipfile.on('entry', (entry: yauzl.Entry) => {
-        // Skip directories (they will be created when files are extracted)
-        if (/\/$/.test(entry.fileName)) {
-          zipfile.readEntry();
-          return;
-        }
-
-        // Security: Prevent path traversal attacks
-        const fullPath = path.join(extractTo, entry.fileName);
-        const normalizedPath = path.normalize(fullPath);
-        if (!normalizedPath.startsWith(path.normalize(extractTo))) {
-          zipfile.readEntry();
-          return;
-        }
-
-        // Ensure parent directory exists
-        const parentDir = path.dirname(normalizedPath);
-        if (!fs.existsSync(parentDir)) {
-          fs.mkdirSync(parentDir, { recursive: true });
-        }
-
-        zipfile.openReadStream(entry, (err: Error | null, readStream: NodeJS.ReadableStream | null) => {
-          if (err) {
-            return reject(err);
-          }
-
-          if (!readStream) {
-            zipfile.readEntry();
-            return;
-          }
-
-          const writeStream = fs.createWriteStream(normalizedPath);
-          readStream.pipe(writeStream);
-          
-          writeStream.on('close', () => {
-            zipfile.readEntry();
-          });
-          
-          writeStream.on('error', (err: Error) => {
-            reject(err);
-          });
-        });
-      });
-
-      zipfile.on('end', () => {
-        logger.info(`✅ Successfully extracted ZIP to: ${extractTo}`);
-        resolve();
-      });
-
-      zipfile.on('error', (err: Error) => {
-        reject(err);
-      });
-    });
-  });
-}
 
 // Helper function to detect repository metadata from a directory
 function detectRepoMetadata(repoDir: string, zipFileName?: string | null): { repoName: string | null; gitBranch: string | null; gitCommit: string | null } {
@@ -436,6 +236,15 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
     
     // Update job status to processing
     ThreatModelingJobModel.updateStatus(jobId, 'processing');
+
+    const jobRecord = ThreatModelingJobModel.findById(jobId);
+    const contextText = (jobRecord.context ?? '').trim();
+    if (!uploadedZipPath && jobRecord.uploaded_zip_path) {
+      uploadedZipPath = jobRecord.uploaded_zip_path;
+    }
+    if (!extractedDir && jobRecord.extracted_dir) {
+      extractedDir = jobRecord.extracted_dir;
+    }
 
     // Get Anthropic API configuration from database
     let anthropicApiKey: string;
@@ -638,6 +447,11 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
     logger.info(`   repository name: ${agentRunRepoName} (for agent-run -s flag)`);
     logger.info(`   detected repository name: ${finalRepoName} (for metadata)`);
     logger.info(`   query: ${query || 'Perform threat modeling analysis'} (loaded from YAML config)`);
+    logger.info(`   contextProvided: ${contextText.length > 0}`);
+    logger.info(`   contextLength: ${contextText.length}`);
+    logger.info(
+      `   contextFieldsPresent: [${listPopulatedContextFieldNames(jobRecord.contextFields ?? {}).join(', ')}]`,
+    );
     
     // Track execution start time
     const executionStartTime = Date.now();
@@ -670,11 +484,18 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
         '-s', `./${agentRunRepoName}`, // Repository subdirectory relative to workDir
         '-f', 'json', // Structured JSON output with schema enforcement
         '-k', anthropicApiKey,
-        '-u', anthropicBaseUrl
+        '-u', anthropicBaseUrl,
       ];
+
+      // argv exposure: -c value is visible in process list (same as -k). Migrate to stdin/env when upstream supports it.
+      if (contextText.length > 0) {
+        agentRunCommand.push('-c', contextText);
+      }
       
       logger.info(`🚀 Starting agent-run CLI execution...`);
-      logger.info(`   Command: node ${path.basename(agentRunPath)} -r threat_modeler -s ./${agentRunRepoName} -k [REDACTED] -u ${anthropicBaseUrl}`);
+      logger.info(
+        `   Command: node ${path.basename(agentRunPath)} -r threat_modeler -s ./${agentRunRepoName} -k [REDACTED] -u ${anthropicBaseUrl}${contextText.length > 0 ? ' -c [REDACTED]' : ''}`,
+      );
       logger.info(`   Note: Query will be loaded from built-in YAML config file for threat_modeler role`);
       
       // Execute the agent-run CLI command using spawn (non-blocking, async)
@@ -1015,138 +836,11 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
   }
 }
 
-// POST /api/threat-modeling - Create a new threat modeling job
-// Accepts either a ZIP file upload or a repository path (for backward compatibility)
-// Requires Admin or Operator role (Auditors cannot schedule jobs)
-router.post('/', authenticateToken, requireJobScheduling, upload.single('repository'), async (req: AuthRequest, res: Response) => {
-  let uploadedZipPath: string | undefined;
-  let extractedDir: string | undefined;
-  let finalRepoPath: string;
+registerThreatModelingStagingRoutes(router, upload, { processThreatModelingJob });
 
-  try {
-    const { query, repoName, gitBranch, gitCommit } = req.body;
-    const userId = req.userId!;
-
-    // Check if ZIP file was uploaded
-    if (req.file) {
-      uploadedZipPath = req.file.path;
-      logger.info(`📦 Received ZIP file upload: ${uploadedZipPath}`);
-
-      // Extract ZIP to a temporary directory
-      extractedDir = path.join(process.cwd(), 'uploads', 'threat-modeling', `extracted-${req.file.filename}`);
-      
-      try {
-        await extractZip(uploadedZipPath, extractedDir);
-        
-        // Verify extraction was successful and contains files
-        if (!fs.existsSync(extractedDir)) {
-          throw new Error('Extracted directory was not created');
-        }
-        
-        const extractedContents = fs.readdirSync(extractedDir);
-        if (extractedContents.length === 0) {
-          throw new Error('Extracted directory is empty - ZIP file may be corrupted or empty');
-        }
-        
-        logger.info(`✅ Extracted repository to: ${extractedDir}`);
-        logger.info(`📋 Extracted directory contains ${extractedContents.length} items: ${extractedContents.slice(0, 10).join(', ')}${extractedContents.length > 10 ? '...' : ''}`);
-        
-        // If ZIP contains a single root directory, use that directory instead
-        if (extractedContents.length === 1) {
-          const singleItem = path.join(extractedDir, extractedContents[0]);
-          const stats = fs.statSync(singleItem);
-          if (stats.isDirectory()) {
-            logger.info(`📁 ZIP contains single root directory, using: ${singleItem}`);
-            finalRepoPath = singleItem;
-          } else {
-            finalRepoPath = extractedDir;
-          }
-        } else {
-          finalRepoPath = extractedDir;
-        }
-        
-        // Final verification: list what's actually in the directory we'll use
-        logger.info(`✅ Using source directory: ${finalRepoPath}`);
-        const finalContents = fs.readdirSync(finalRepoPath);
-        logger.info(`📋 Final source directory contains: ${finalContents.slice(0, 10).join(', ')}${finalContents.length > 10 ? '...' : ''} (${finalContents.length} total)`);
-      } catch (extractErr) {
-        // Clean up uploaded file if extraction fails
-        if (fs.existsSync(uploadedZipPath)) {
-          fs.unlinkSync(uploadedZipPath);
-        }
-        if (fs.existsSync(extractedDir)) {
-          fs.rmSync(extractedDir, { recursive: true, force: true });
-        }
-        throw new Error(`Failed to extract ZIP file: ${extractErr instanceof Error ? extractErr.message : 'Unknown error'}`);
-      }
-    } else {
-      // Backward compatibility: use repoPath from body
-      const { repoPath } = req.body;
-      if (!repoPath) {
-        return res.status(400).json({ error: 'Repository ZIP file upload or repository path required' });
-      }
-      finalRepoPath = repoPath;
-    }
-
-    // Create job (store the original path or indicate it was uploaded)
-    const jobRepoPath = req.file ? `[UPLOADED] ${req.file.originalname}` : finalRepoPath;
-    const zipFileName = req.file ? req.file.originalname : null;
-    const job = ThreatModelingJobModel.create(userId, jobRepoPath, query, repoName || null, gitBranch || null, gitCommit || null);
-
-    // Process job asynchronously (don't await)
-    // Pass the extracted directory path and uploaded ZIP path for cleanup
-    processThreatModelingJob(
-      job.id, 
-      finalRepoPath, 
-      query || 'Perform threat modeling analysis',
-      uploadedZipPath,
-      extractedDir,
-      zipFileName || undefined
-    ).catch(err => logger.error('Background job processing error:', err));
-
-    res.json({
-      status: 'success',
-      message: 'Threat modeling job created',
-      jobId: job.id,
-      job: {
-        id: job.id,
-        status: job.status,
-        repoPath: job.repo_path,
-        query: job.query,
-        repoName: job.repo_name,
-        gitBranch: job.git_branch,
-        gitCommit: job.git_commit,
-        sourceType: job.source_type ?? 'upload',
-        sourceUrl: job.source_url,
-        gitRef: job.git_ref,
-        gitRefType: job.git_ref_type,
-        executionDuration: job.execution_duration,
-        apiCost: job.api_cost,
-        createdAt: job.created_at
-      }
-    });
-  } catch (error: unknown) {
-    logger.error('Threat modeling job creation error:', error);
-    
-    // Clean up on error
-    if (uploadedZipPath && fs.existsSync(uploadedZipPath)) {
-      try {
-        fs.unlinkSync(uploadedZipPath);
-      } catch (err) {
-        logger.warn('Could not clean up uploaded file on error:', err);
-      }
-    }
-    if (extractedDir && fs.existsSync(extractedDir)) {
-      try {
-        fs.rmSync(extractedDir, { recursive: true, force: true });
-      } catch (err) {
-        logger.warn('Could not clean up extracted directory on error:', err);
-      }
-    }
-    
-    const message = error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).json({ error: 'Failed to create threat modeling job', message });
-  }
+// POST /api/threat-modeling — removed; migrate to staging flow
+router.post('/', authenticateToken, requireJobScheduling, (_req: AuthRequest, res: Response) => {
+  res.status(410).json(LEGACY_GONE_BODY);
 });
 
 // GET /api/threat-modeling/jobs - Get all jobs for the authenticated user (or all jobs for Auditors)
@@ -1177,6 +871,8 @@ router.get('/jobs', authenticateToken, (req: AuthRequest, res: Response) => {
           sourceUrl: job.source_url,
           gitRef: job.git_ref,
           gitRefType: job.git_ref_type,
+          context: job.context,
+          contextFields: job.contextFields,
           executionDuration: job.execution_duration,
           apiCost: job.api_cost,
           createdAt: job.created_at,
@@ -1207,6 +903,8 @@ router.get('/jobs', authenticateToken, (req: AuthRequest, res: Response) => {
           sourceUrl: job.source_url,
           gitRef: job.git_ref,
           gitRefType: job.git_ref_type,
+          context: job.context,
+          contextFields: job.contextFields,
           executionDuration: job.execution_duration,
           apiCost: job.api_cost,
           createdAt: job.created_at,
@@ -1308,6 +1006,8 @@ router.get('/jobs/:id', authenticateToken, (req: AuthRequest, res: Response) => 
         sourceUrl: job.source_url,
         gitRef: job.git_ref,
         gitRefType: job.git_ref_type,
+        context: job.context,
+        contextFields: job.contextFields,
         executionDuration: job.execution_duration,
         apiCost: job.api_cost,
         createdAt: job.created_at,

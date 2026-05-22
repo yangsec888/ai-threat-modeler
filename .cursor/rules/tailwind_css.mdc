@@ -1,0 +1,6 @@
+---
+description: Rules for using Tailwind CSS for styling in Next.js 15 components.
+globs: **/*.tsx
+alwaysApply: true
+---
+- Utilize Tailwind CSS classes exclusively for styling. Avoid inline styles.

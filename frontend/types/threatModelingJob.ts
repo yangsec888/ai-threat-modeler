@@ -3,6 +3,10 @@
  */
 
 import type { DataFlowDiagram, ReportMetadata, RiskRegistry, ThreatModel, Recommendation } from '@/types/threatModel'
+import type { ContextFields } from '@/types/contextFields'
+
+export type { ContextFields } from '@/types/contextFields'
+export type { ThreatModelingStaging, StagingStatus } from '@/types/contextFields'
 
 export type ThreatModelingJobSourceType = 'upload' | 'github'
 export type ThreatModelingJobGitRefType = 'branch' | 'tag' | 'commit'
@@ -25,6 +29,8 @@ export interface ThreatModelingJob {
   createdAt: string
   updatedAt: string
   completedAt: string | null
+  context?: string | null
+  contextFields?: ContextFields | null
   metadata?: ReportMetadata | null
   dataFlowDiagram?: DataFlowDiagram | null
   threatModel?: ThreatModel | null

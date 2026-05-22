@@ -1,0 +1,42 @@
+---
+description: Enforces TypeScript type safety standards and best practices.
+globs:
+  - "**/*.ts"
+  - "**/*.tsx"
+alwaysApply: true
+---
+
+# TypeScript Coding Standards
+
+This rule outlines essential TypeScript coding standards to ensure type safety, readability, and maintainability.
+
+## 1. Strict Type Checking
+
+Always enable strict type checking in `tsconfig.json`. This includes:
+- `strict: true`
+- `noImplicitAny: true`
+- `strictNullChecks: true`
+- `strictFunctionTypes: true`
+- `strictPropertyInitialization: true`
+- `noImplicitThis: true`
+- `alwaysStrict: true`
+
+## 2. Avoid `any`
+
+Minimize or eliminate the use of the `any` type. Where types are complex or unknown, prefer using `unknown` and then type-guarding or asserting the type explicitly.
+
+**Example:**
+
+```typescript
+// ✅ RIGHT
+function processData(data: unknown) {
+  if (typeof data === 'string') {
+    console.log(data.toUpperCase());
+  }
+}
+
+// ❌ WRONG
+function processData(data: any) {
+  console.log(data.toUpperCase());
+}
+```

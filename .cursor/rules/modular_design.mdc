@@ -1,0 +1,68 @@
+---
+description: Modular design principles for readable, reviewable, and maintainable code.
+globs: **/*.{ts,tsx,js,jsx}
+alwaysApply: true
+---
+
+# Modular Design for Code Review
+
+Follow these principles so code is easy for human reviewers to understand and troubleshoot.
+
+## Single responsibility
+
+- Give each file, component, and function **one clear purpose**. Name it so that purpose is obvious.
+- If a file or function does more than one distinct thing, split it into smaller units.
+- Prefer many small, focused modules over few large ones.
+
+## Clear boundaries and APIs
+
+- Define **explicit inputs and outputs** for functions and components (typed props, parameters, return types).
+- Minimize coupling: modules should depend on narrow, stable interfaces rather than internal details of others.
+- Export only what callers need; keep implementation details private or internal to the file.
+
+## Composition over monoliths
+
+- Build features by **composing** small components and utilities instead of writing one large component or file.
+- Extract reusable logic into custom hooks or pure functions with a clear, documented responsibility.
+- Keep each unit at **one level of abstraction** where possible (e.g. a function does “validate form” or “call API”, not both plus UI).
+
+## Readability and navigation
+
+- Avoid deep nesting (e.g. many levels of callbacks or conditionals). Flatten with early returns, extracted functions, or small sub-components.
+- Colocate code that changes together: keep types, helpers, and tests close to the feature they support.
+- Use **meaningful names** for files, functions, and exports so reviewers can quickly see what each part does.
+
+## File and folder structure
+
+- Place components, hooks, and utilities in **predictable locations** (e.g. `components/`, `hooks/`, `lib/`, feature folders).
+- Keep files **short enough to review in one pass**; if a file grows beyond a few hundred lines, consider splitting by responsibility.
+
+## Example
+
+```tsx
+// ❌ Hard to review: one large component, mixed concerns
+const UserDashboard = () => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { /* fetch user */ }, []);
+  const handleSave = async () => { /* validation + API + error handling */ };
+  return (
+    <div>
+      {/* 200 lines of JSX mixing layout, forms, and business logic */}
+    </div>
+  );
+};
+
+// ✅ Easier to review: small modules, clear boundaries
+// components/user-dashboard.tsx
+const UserDashboard = () => (
+  <DashboardLayout>
+    <UserProfileSection />
+    <UserSettingsForm />
+  </DashboardLayout>
+);
+
+// hooks/use-user.ts – single responsibility: load user
+// components/user-profile-section.tsx – display only
+// components/user-settings-form.tsx – form + validation; calls API via hook or action
+```

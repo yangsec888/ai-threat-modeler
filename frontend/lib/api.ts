@@ -14,6 +14,8 @@ const getApiBaseUrl = (): string => {
   return url;
 };
 
+import type { ContextFields } from '@/types/contextFields';
+
 const API_BASE_URL = getApiBaseUrl();
 
 // Get auth token from localStorage
@@ -127,35 +129,85 @@ export const api = {
     return response.json();
   },
 
-  // Threat Modeling
-  threatModeling: async (repositoryZip: File, query?: string) => {
+  // Threat Modeling — staging flow
+  stageThreatModelingUpload: async (
+    repositoryZip: File,
+    meta?: { repoName?: string; gitBranch?: string; gitCommit?: string },
+  ) => {
     const formData = new FormData();
     formData.append('repository', repositoryZip);
-    if (query) {
-      formData.append('query', query);
-    }
-    
+    if (meta?.repoName) formData.append('repoName', meta.repoName);
+    if (meta?.gitBranch) formData.append('gitBranch', meta.gitBranch);
+    if (meta?.gitCommit) formData.append('gitCommit', meta.gitCommit);
+
     const authHeaders = getAuthHeaders();
-    // Create headers without Content-Type - browser will set it automatically with boundary for FormData
     const headers: Record<string, string> = {};
-    // @ts-ignore - HeadersInit can be indexed for Authorization header
-    const authHeader = authHeaders['Authorization'];
-    if (authHeader) {
-      headers['Authorization'] = authHeader as string;
-    }
-    
-    const response = await fetch(`${API_BASE_URL}/threat-modeling`, {
+    const authHeader = (authHeaders as Record<string, string>)['Authorization'];
+    if (authHeader) headers['Authorization'] = authHeader;
+
+    const response = await fetch(`${API_BASE_URL}/threat-modeling/stage`, {
       method: 'POST',
       headers,
       body: formData,
     });
-    
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
-      throw new Error(errorData.error || errorData.message || 'Failed to create threat modeling job');
+      throw new Error(errorData.error || errorData.message || 'Failed to stage repository');
     }
-    
+
+    return response.json() as Promise<{ stagingId: string; status: string }>;
+  },
+
+  getThreatModelingStage: async (stagingId: string) => {
+    const response = await fetch(`${API_BASE_URL}/threat-modeling/stage/${stagingId}`, {
+      headers: getAuthHeaders(),
+    });
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+      throw new Error(errorData.error || errorData.message || 'Failed to get staging status');
+    }
+
     return response.json();
+  },
+
+  runThreatModelingStage: async (
+    stagingId: string,
+    contextFields: ContextFields,
+  ) => {
+    const response = await fetch(`${API_BASE_URL}/threat-modeling/stage/${stagingId}/run`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ contextFields }),
+    });
+
+    if (response.status === 404) {
+      throw new Error('SESSION_EXPIRED');
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+      throw new Error(errorData.error || errorData.message || 'Failed to run threat model');
+    }
+
+    return response.json();
+  },
+
+  cancelThreatModelingStage: async (stagingId: string) => {
+    const response = await fetch(`${API_BASE_URL}/threat-modeling/stage/${stagingId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok && response.status !== 204) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+      throw new Error(errorData.error || errorData.message || 'Failed to cancel staging');
+    }
   },
 
   getThreatModelingJobs: async () => {
@@ -299,22 +351,22 @@ export const api = {
     return response.json();
   },
 
-  importFromGitHub: async (params: {
+  stageGitHubImport: async (params: {
     repoUrl: string;
     gitRef: string;
     gitRefType: 'branch' | 'tag' | 'commit';
     repoName?: string;
   }) => {
-    const response = await fetch(`${API_BASE_URL}/github/import`, {
+    const response = await fetch(`${API_BASE_URL}/github/stage`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(params),
     });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
-      throw new Error(errorData.error || errorData.message || 'Failed to start GitHub import');
+      throw new Error(errorData.error || errorData.message || 'Failed to stage GitHub repository');
     }
-    return response.json();
+    return response.json() as Promise<{ stagingId: string; status: string }>;
   },
 
   // Chat

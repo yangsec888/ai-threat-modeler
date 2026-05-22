@@ -1,80 +1,24 @@
-import { test, expect, type Page } from '@playwright/test'
-import { stubThreatModelingApi } from './helpers/stubApi'
-
-async function stubGithubApis(page: Page): Promise<void> {
-  await page.route('**/api/github/token', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({
-        status: 200, contentType: 'application/json',
-        body: JSON.stringify({
-          status: 'success',
-          token: { exists: false, name: null, createdAt: null, updatedAt: null, lastUsedAt: null },
-        }),
-      })
-      return
-    }
-    await route.continue()
-  })
-
-  await page.route('**/api/github/check-repo', async (route) => {
-    expect(route.request().method()).toBe('POST')
-    await route.fulfill({
-      status: 200, contentType: 'application/json',
-      body: JSON.stringify({
-        status: 'success',
-        hasToken: false,
-        repoInfo: {
-          owner: 'octocat',
-          repo: 'Hello-World',
-          normalizedUrl: 'https://github.com/octocat/Hello-World',
-          defaultBranch: 'main',
-          isPrivate: false,
-          description: 'My first repository on GitHub.',
-          branches: ['main', 'dev'],
-          tags: ['v1.0', 'v0.9'],
-        },
-      }),
-    })
-  })
-
-  await page.route('**/api/github/import', async (route) => {
-    expect(route.request().method()).toBe('POST')
-    const body = route.request().postDataJSON() as Record<string, unknown>
-    expect(body.repoUrl).toBe('https://github.com/octocat/Hello-World')
-    expect(body.gitRefType).toBe('branch')
-    expect(body.gitRef).toBe('main')
-    await route.fulfill({
-      status: 202, contentType: 'application/json',
-      body: JSON.stringify({
-        status: 'success',
-        message: 'GitHub import started',
-        jobId: 'job-gh-1',
-        job: {
-          id: 'job-gh-1',
-          status: 'pending',
-          repoPath: '[GITHUB] octocat/Hello-World@main',
-          repoName: 'Hello-World',
-          sourceType: 'github',
-          sourceUrl: 'https://github.com/octocat/Hello-World@main',
-          gitRef: 'main',
-          gitRefType: 'branch',
-          createdAt: new Date().toISOString(),
-        },
-      }),
-    })
-  })
-}
+import { test, expect } from '@playwright/test'
+import { stubThreatModelingApi, stubStagingApi, stubGithubApis } from './helpers/stubApi'
 
 test.beforeEach(async ({ page }) => {
   await stubThreatModelingApi(page)
   await stubGithubApis(page)
+  await stubStagingApi(page, {
+    stagingId: 'staging-gh-1',
+    githubJob: {
+      sourceUrl: 'https://github.com/octocat/Hello-World@main',
+      gitBranch: 'main',
+      repoName: 'Hello-World',
+    },
+  })
   await page.addInitScript(() => {
     localStorage.setItem('auth_token', 'e2e-test-token')
   })
 })
 
 test.describe('GitHub Import', () => {
-  test('looks up a repo, picks a branch, and starts an import', async ({ page }) => {
+  test('looks up a repo, analyzes context, and runs threat model', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('tab', { name: /Import from GitHub/i }).click()
 
@@ -85,35 +29,31 @@ test.describe('GitHub Import', () => {
     await expect(page.getByText('octocat/Hello-World')).toBeVisible()
     await expect(page.getByLabel('Branch')).toHaveValue('main')
 
-    await page.getByRole('button', { name: /Import & Create Job/i }).click()
+    await page.getByRole('button', { name: /Analyze repository/i }).click()
+    await expect(page.getByLabel('Project summary')).toHaveValue('E2E sample web API', { timeout: 15000 })
+    await page.getByLabel('Additional notes').fill('Compliance: SOC2')
+    await page.getByRole('button', { name: /Run threat model/i }).click()
 
-    // Job appears in the list
     const githubLink = page.getByTestId('github-source-link')
-    await expect(githubLink).toBeVisible()
+    await expect(githubLink).toBeVisible({ timeout: 10000 })
     await expect(githubLink).toHaveAttribute('href', 'https://github.com/octocat/Hello-World')
     await expect(page.getByText('Branch: main').first()).toBeVisible()
   })
 
   test('private repo without PAT shows a hint to set one in Settings', async ({ page }) => {
     await page.unroute('**/api/github/check-repo')
-    await page.route('**/api/github/check-repo', async (route) => {
-      await route.fulfill({
-        status: 200, contentType: 'application/json',
-        body: JSON.stringify({
-          status: 'success',
-          hasToken: false,
-          repoInfo: {
-            owner: 'me',
-            repo: 'private-repo',
-            normalizedUrl: 'https://github.com/me/private-repo',
-            defaultBranch: 'main',
-            isPrivate: true,
-            description: null,
-            branches: ['main'],
-            tags: [],
-          },
-        }),
-      })
+    await stubGithubApis(page, {
+      hasToken: false,
+      repoInfo: {
+        owner: 'me',
+        repo: 'private-repo',
+        normalizedUrl: 'https://github.com/me/private-repo',
+        defaultBranch: 'main',
+        isPrivate: true,
+        description: null,
+        branches: ['main'],
+        tags: [],
+      },
     })
     await page.goto('/')
     await page.getByRole('tab', { name: /Import from GitHub/i }).click()
@@ -121,6 +61,8 @@ test.describe('GitHub Import', () => {
     await page.getByRole('button', { name: /Look up/i }).click()
 
     await expect(page.getByText('me/private-repo')).toBeVisible()
-    await expect(page.getByText('Private', { exact: true })).toBeVisible()
+    await expect(
+      page.getByText(/Set a GitHub PAT in Settings before importing/i),
+    ).toBeVisible()
   })
 })
