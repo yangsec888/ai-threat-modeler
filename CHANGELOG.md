@@ -5,6 +5,17 @@ All notable changes to AI Threat Modeler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.7] - 2026-05-22
+
+### Fixed
+- **`Invalid or expired token` Console Error overlay on every page load when a stale JWT is in `localStorage`.** Next.js 15.5's new dev-mode "Console Error" overlay was surfacing the expired-token failure thrown by `AuthProvider.checkAuth → api.getCurrentUser` as a red error toast on every cold load of the app, even though the `try/catch` was already clearing the token and falling through to the login screen. Symptom: noisy red `Invalid or expired token` dialog in dev whenever the persisted token had expired since the last session (i.e. the **expected** logged-out boot state for a returning user). Root cause: `getCurrentUser` was treating 401/403 as a thrown error, and `AuthContext` was logging the catch via `console.error`, which Next 15.5's overlay always promotes.
+
+### Changed
+- **`frontend/lib/api.ts`** (`getCurrentUser`): 401/403 responses now branch *before* the `!response.ok` throw — `handleAuthError(response)` still clears the stale token from `localStorage`, but the function returns `null` instead of throwing. Genuine non-auth failures (5xx, malformed responses, etc.) still throw as before.
+- **`frontend/contexts/AuthContext.tsx`** (`AuthProvider.checkAuth`): short-circuits with an early `return` when no token is present (avoids a needless `/auth/me` round-trip on first-ever visits), handles the new `null` return quietly by leaving `user` as `null`, and only reaches the `console.error` branch on truly unexpected failures (network down, backend 5xx) — which is the only case the dev overlay should ever fire on.
+- **`frontend/__tests__/lib/api.test.ts`**: the `should remove token on 401 error` test is renamed to `should remove token and return null on 401 error` and now asserts both the `localStorage.removeItem('auth_token')` side-effect *and* `result === null` (previously asserted a rejected `'Unauthorized'` throw). All 24 affected unit tests in `api.test.ts` + `AuthContext.test.tsx` pass.
+- **Root** package version **1.6.7**, **frontend** package version **1.6.2**.
+
 ## [1.6.6] - 2026-05-09
 
 ### Added

@@ -96,13 +96,19 @@ export const api = {
       method: 'GET',
       headers: getAuthHeaders(),
     });
-    
-    if (!response.ok) {
+
+    // Expired/invalid tokens on app load are a normal "logged out" state,
+    // not a real error. Clear the stale token and signal no user.
+    if (response.status === 401 || response.status === 403) {
       handleAuthError(response);
+      return null;
+    }
+
+    if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
       throw new Error(errorData.error || errorData.message || 'Failed to get user');
     }
-    
+
     return response.json();
   },
 

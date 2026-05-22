@@ -131,7 +131,7 @@ describe('API Client', () => {
       )
     })
 
-    it('should remove token on 401 error', async () => {
+    it('should remove token and return null on 401 error', async () => {
       localStorageMock.getItem.mockReturnValue('invalid-token')
 
       ;(global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -140,7 +140,8 @@ describe('API Client', () => {
         json: async () => ({ error: 'Unauthorized' }),
       })
 
-      await expect(api.getCurrentUser()).rejects.toThrow('Unauthorized')
+      const result = await api.getCurrentUser()
+      expect(result).toBeNull()
       expect(localStorageMock.removeItem).toHaveBeenCalledWith('auth_token')
     })
   })

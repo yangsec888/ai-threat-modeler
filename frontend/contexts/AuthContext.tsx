@@ -43,11 +43,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const checkAuth = async () => {
       try {
         const token = localStorage.getItem('auth_token');
-        if (token) {
-          const response = await api.getCurrentUser();
+        if (!token) {
+          return;
+        }
+        const response = await api.getCurrentUser();
+        // getCurrentUser returns null when the stored token is expired/invalid;
+        // the API client has already cleared it, so just stay logged out quietly.
+        if (response?.user) {
           setUser(response.user);
         }
       } catch (error) {
+        // Only log truly unexpected failures (network errors, server errors, etc.)
         console.error('Auth check failed:', error);
         localStorage.removeItem('auth_token');
       } finally {
