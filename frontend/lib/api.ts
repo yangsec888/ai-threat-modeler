@@ -15,6 +15,14 @@ const getApiBaseUrl = (): string => {
 };
 
 import type { ContextFields } from '@/types/contextFields';
+import type { ThreatModelingJob } from '@/types/threatModelingJob';
+
+export interface GetThreatModelingJobResult {
+  job: ThreatModelingJob | null;
+  notFound: boolean;
+  forbidden: boolean;
+  error: string | null;
+}
 
 const API_BASE_URL = getApiBaseUrl();
 
@@ -224,18 +232,40 @@ export const api = {
     return response.json();
   },
 
-  getThreatModelingJob: async (jobId: string) => {
-    const response = await fetch(`${API_BASE_URL}/threat-modeling/jobs/${jobId}`, {
-      headers: getAuthHeaders(),
-    });
-    
-    if (!response.ok) {
-      handleAuthError(response);
-      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
-      throw new Error(errorData.error || errorData.message || 'Failed to get job');
+  getThreatModelingJob: async (jobId: string): Promise<GetThreatModelingJobResult> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/threat-modeling/jobs/${jobId}`, {
+        headers: getAuthHeaders(),
+      });
+
+      if (response.status === 404) {
+        return { job: null, notFound: true, forbidden: false, error: null };
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        handleAuthError(response);
+        return { job: null, notFound: false, forbidden: true, error: null };
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+        const message =
+          (errorData as { error?: string; message?: string }).error ||
+          (errorData as { error?: string; message?: string }).message ||
+          'Failed to get job';
+        return { job: null, notFound: false, forbidden: false, error: message };
+      }
+
+      const data = (await response.json()) as { job: ThreatModelingJob };
+      return { job: data.job, notFound: false, forbidden: false, error: null };
+    } catch {
+      return {
+        job: null,
+        notFound: false,
+        forbidden: false,
+        error: 'Failed to load job',
+      };
     }
-    
-    return response.json();
   },
 
   downloadThreatModelingReport: async (jobId: string, format: 'json' | 'csv' = 'json') => {

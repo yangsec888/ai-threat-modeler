@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { stubThreatModelingApi } from './helpers/stubApi'
+import { openReportPage, stubThreatModelingApi } from './helpers/stubApi'
 
 function appOrigin(): string {
   return (process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3333').replace(/\/$/, '')
@@ -13,9 +13,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('DFD PDF export suggests DFD filename', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Preview' }).click()
-  await expect(page.getByTestId('dfd-canvas-root')).toBeVisible({ timeout: 60_000 })
+  await openReportPage(page)
 
   const [download] = await Promise.all([
     page.waitForEvent('download'),
@@ -26,18 +24,14 @@ test('DFD PDF export suggests DFD filename', async ({ page }) => {
 
 test('Copy Mermaid writes flowchart to clipboard', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: appOrigin() })
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Preview' }).click()
-  await expect(page.getByTestId('dfd-canvas-root')).toBeVisible({ timeout: 60_000 })
+  await openReportPage(page)
   await page.getByTestId('dfd-copy-mermaid').click()
   const text = await page.evaluate(() => navigator.clipboard.readText())
   expect(text).toContain('flowchart')
 })
 
 test('SVG and PNG export trigger downloads', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Preview' }).click()
-  await expect(page.getByTestId('dfd-canvas-root')).toBeVisible({ timeout: 60_000 })
+  await openReportPage(page)
 
   const svgDl = page.waitForEvent('download')
   await page.getByTestId('dfd-export-svg').click()

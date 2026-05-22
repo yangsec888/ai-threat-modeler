@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-05-22
+
+### Added
+- **Dedicated report page at `/reports/[jobId]`.** Clicking **Preview** on a completed job now opens the threat model in a new browser tab with the full viewport (`max-w-7xl`), matching the sast-ai-app pattern. The page loads the job via `GET /api/threat-modeling/jobs/:id`, shows explicit states for loading, not found, forbidden, error, and jobs that are not yet `completed`, and sets `document.title` from the project name.
+- **`frontend/app/reports/[jobId]/page.tsx`** — `AuthGuard` + `Suspense` shell, header with logo, **Back** (`router.back()` when `history.length > 1`, else link to `/`), and **Download JSON**. Renders `<JobContextCard>` and `<JobReport>` below the title.
+- **`frontend/components/JobReport.tsx`** — extracted three-tab report UI (DFD / Threat Model / Risk Registry) with local `dfdCanvasRef`, PDF/Excel export, and threat-by-component filter from the DFD.
+- **`frontend/components/JobContextCard.tsx`** — extracted "Context used" card (six `contextFields` or legacy `context` string).
+- **`frontend/components/JobsList.tsx`** — extracted jobs list rows and action buttons (`Preview`, Download JSON, Delete).
+- **`frontend/lib/api.ts`** — `getThreatModelingJob` now returns `{ job, notFound, forbidden, error }` instead of throwing on 404/401/403, so the report page can render targeted empty states.
+- **Tests:**
+  - **Jest** — `frontend/__tests__/app/reports.test.tsx` (9), `JobReport.test.tsx` (9), `JobContextCard.test.tsx` (4), `JobsList.test.tsx` (5). Frontend Jest **126 → 153**.
+  - **Playwright** — `frontend/e2e/job-report-page.spec.ts` (7): new-tab Preview, direct navigation, pending job, 404, document title, back navigation, tab switching. `dfd-tab.spec.ts` and `dfd-export.spec.ts` migrated to `openReportPage()` (direct `/reports/:id` navigation). E2e **19 → 26**. API stubs in `stubApi.ts` now register on the **browser context** so new tabs receive the same mocks.
+
+### Changed
+- **`frontend/components/ThreatModeling.tsx`** — removed inline report preview (~350 lines): `selectedJob`, `handleViewReport`, PDF/Excel handlers, and preview cards. **Preview** calls `window.open('/reports/' + id, '_blank', 'noopener,noreferrer')`. Job polling uses the new `getThreatModelingJob` result shape.
+- **Root** package version **1.7.1**, **frontend** package version **1.7.1**.
+
 ## [1.7.0] - 2026-05-22
 
 ### Added

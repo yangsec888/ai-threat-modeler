@@ -1,6 +1,9 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
+
+/** Canonical completed-job id from fixtures/dfd-report.json */
+export const FIXTURE_JOB_ID = '00000000-0000-4000-8000-000000000001'
 
 function loadDfdReport(): unknown {
   const p = path.join(__dirname, '../fixtures/dfd-report.json')
@@ -166,8 +169,20 @@ export async function stubStagingApi(
   return stagingId
 }
 
+export async function openReportPage(
+  page: Page,
+  jobId: string = FIXTURE_JOB_ID,
+): Promise<void> {
+  await page.goto(`/reports/${jobId}`)
+  await expect(page.getByTestId('dfd-canvas-root')).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText('Layout…')).toBeHidden({ timeout: 60_000 })
+}
+
 /** Stub auth + threat-modeling APIs so the dashboard runs without the backend. */
-export async function stubThreatModelingApi(page: Page): Promise<void> {
+export async function stubThreatModelingApi(
+  page: Page,
+  options: { jobStatus?: string; jobNotFound?: boolean } = {},
+): Promise<void> {
   const dfdReport = loadDfdReport() as {
     job: {
       id: string
@@ -185,9 +200,14 @@ export async function stubThreatModelingApi(page: Page): Promise<void> {
       completedAt: string | null
     }
   }
-  const job = dfdReport.job
+  const job = {
+    ...dfdReport.job,
+    ...(options.jobStatus ? { status: options.jobStatus } : {}),
+  }
 
-  await page.route('**/api/auth/me', async (route) => {
+  const context = page.context()
+
+  await context.route('**/api/auth/me', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -203,7 +223,7 @@ export async function stubThreatModelingApi(page: Page): Promise<void> {
     })
   })
 
-  await page.route(
+  await context.route(
     (url) => {
       const pth = url.pathname.replace(/\/$/, '')
       return pth === '/api/threat-modeling/jobs'
@@ -240,18 +260,29 @@ export async function stubThreatModelingApi(page: Page): Promise<void> {
     }
   )
 
-  await page.route(
+  await context.route(
     (url) => /^\/api\/threat-modeling\/jobs\/[^/]+$/.test(url.pathname),
     async (route) => {
       if (route.request().method() !== 'GET') {
         await route.continue()
         return
       }
+      if (options.jobNotFound) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Job not found' }),
+        })
+        return
+      }
+      const payload = options.jobStatus
+        ? { status: 'success', job: { ...dfdReport.job, status: options.jobStatus } }
+        : { ...dfdReport, job }
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(dfdReport),
+        body: JSON.stringify(payload),
       })
-    }
+    },
   )
 }
