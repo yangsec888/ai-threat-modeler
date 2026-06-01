@@ -93,7 +93,33 @@ describe('<GitHubImport />', () => {
     fireEvent.click(screen.getByRole('button', { name: /Look up/i }))
 
     await waitFor(() => expect(screen.getByText(/octocat\/Hello-World/)).toBeInTheDocument())
+    expect(screen.getByLabelText('Branch name')).toHaveValue('main')
+    expect(screen.getByText(/Default branch:/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Analyze repository/i })).toBeInTheDocument()
+  })
+
+  it('pre-fills default branch when it is missing from the listed branches', async () => {
+    ;(api.checkGitHubRepo as jest.Mock).mockResolvedValue({
+      repoInfo: {
+        owner: 'capsulehealth',
+        repo: 'vesto',
+        normalizedUrl: 'https://github.com/capsulehealth/vesto',
+        defaultBranch: 'master',
+        isPrivate: true,
+        description: null,
+        branches: ['322-athena-demo', 'dev'],
+        tags: [],
+      },
+      hasToken: true,
+    })
+    render(<GitHubImport onImportStarted={onImportStarted} onError={onError} onInfo={onInfo} />)
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/capsulehealth/vesto' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Look up/i }))
+
+    await waitFor(() => expect(screen.getByLabelText('Branch name')).toHaveValue('master'))
+    expect(screen.getByText(/Default branch:/)).toBeInTheDocument()
   })
 
   it('runs staging flow and calls onImportStarted after Run', async () => {

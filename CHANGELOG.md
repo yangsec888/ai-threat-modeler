@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-06-01
+
+### Fixed
+- **GitHub import default branch missing from branch picker on large repos.** The branches API returns only the first 100 names in alphabetical order, so the default branch (e.g. `master`) was often absent from the dropdown and the UI fell back to the first listed branch. The import form now shows the default branch separately, pre-fills a **Branch name** text field with it, and keeps the dropdown as an optional **Listed branches** picker for quick selection.
+
+### Changed
+- **Root and backend `appsec-agent` dependency bumped from `^2.1.6` / `^2.1.7` to `^3.0.1`**, aligning the standalone CLI package with the backend. Root package version **1.7.3**, frontend package version **1.7.3**.
+
 ## [1.7.1] - 2026-05-22
 
 ### Added

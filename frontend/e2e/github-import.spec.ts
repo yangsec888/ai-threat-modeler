@@ -27,7 +27,7 @@ test.describe('GitHub Import', () => {
     await page.getByRole('button', { name: /Look up/i }).click()
 
     await expect(page.getByText('octocat/Hello-World')).toBeVisible()
-    await expect(page.getByLabel('Branch')).toHaveValue('main')
+    await expect(page.getByLabel('Branch name')).toHaveValue('main')
 
     await page.getByRole('button', { name: /Analyze repository/i }).click()
     await expect(page.getByLabel('Project summary')).toHaveValue('E2E sample web API', { timeout: 15000 })

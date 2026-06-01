@@ -42,6 +42,7 @@ export function GitHubImport({ onImportStarted, onError, onInfo, onTokenNeeded }
   const [checking, setChecking] = useState(false)
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null)
   const [refType, setRefType] = useState<ThreatModelingJobGitRefType>('branch')
+  const [branchName, setBranchName] = useState<string>('')
   const [selectedRef, setSelectedRef] = useState<string>('')
   const [commitSha, setCommitSha] = useState('')
   const [tokenStatus, setTokenStatus] = useState<GitHubTokenStatus | null>(null)
@@ -65,7 +66,8 @@ export function GitHubImport({ onImportStarted, onError, onInfo, onTokenNeeded }
       const info: RepoInfo = res.repoInfo
       setRepoInfo(info)
       setRefType('branch')
-      setSelectedRef(info.defaultBranch)
+      setBranchName(info.defaultBranch)
+      setSelectedRef(info.tags[0] ?? '')
       setCommitSha('')
       if (info.isPrivate && !res.hasToken) {
         onInfo?.('This is a private repository. Set a GitHub PAT in Settings before importing.')
@@ -83,7 +85,11 @@ export function GitHubImport({ onImportStarted, onError, onInfo, onTokenNeeded }
 
   const resolveGitRef = (): string | null => {
     if (!repoInfo) return null
-    if (refType === 'branch' || refType === 'tag') {
+    if (refType === 'branch') {
+      const gitRef = branchName.trim()
+      return gitRef || null
+    }
+    if (refType === 'tag') {
       const gitRef = selectedRef.trim()
       return gitRef || null
     }
@@ -102,7 +108,13 @@ export function GitHubImport({ onImportStarted, onError, onInfo, onTokenNeeded }
     }
     const gitRef = resolveGitRef()
     if (!gitRef) {
-      onError(refType === 'commit' ? 'Enter a commit SHA' : `Select a ${refType}`)
+      onError(
+        refType === 'commit'
+          ? 'Enter a commit SHA'
+          : refType === 'branch'
+            ? 'Enter a branch name'
+            : `Select a ${refType}`,
+      )
       return
     }
     try {
@@ -145,6 +157,7 @@ export function GitHubImport({ onImportStarted, onError, onInfo, onTokenNeeded }
       staging.reset()
       setRepoUrl('')
       setRepoInfo(null)
+      setBranchName('')
       setSelectedRef('')
       setCommitSha('')
     } catch (err: unknown) {
@@ -291,22 +304,62 @@ export function GitHubImport({ onImportStarted, onError, onInfo, onTokenNeeded }
           </div>
 
           {refType === 'branch' && (
-            <div>
-              <label htmlFor="branch-select" className="text-sm font-medium mb-1 block">
-                Branch
-              </label>
-              <select
-                id="branch-select"
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                value={selectedRef}
-                onChange={(e) => setSelectedRef(e.target.value)}
-              >
-                {repoInfo.branches.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-sm">
+                <GitBranch className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="text-muted-foreground">Default branch:</span>
+                <span className="font-medium truncate">{repoInfo.defaultBranch}</span>
+                {branchName !== repoInfo.defaultBranch && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="ml-auto h-7 shrink-0"
+                    onClick={() => setBranchName(repoInfo.defaultBranch)}
+                  >
+                    Use default
+                  </Button>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="branch-input" className="text-sm font-medium mb-1 block">
+                  Branch name
+                </label>
+                <Input
+                  id="branch-input"
+                  type="text"
+                  placeholder="e.g. main"
+                  value={branchName}
+                  onChange={(e) => setBranchName(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Type any branch name. The list below shows up to 100 branches returned by GitHub.
+                </p>
+              </div>
+
+              {repoInfo.branches.length > 0 && (
+                <div>
+                  <label htmlFor="branch-select" className="text-sm font-medium mb-1 block">
+                    Listed branches
+                  </label>
+                  <select
+                    id="branch-select"
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={repoInfo.branches.includes(branchName) ? branchName : ''}
+                    onChange={(e) => {
+                      if (e.target.value) setBranchName(e.target.value)
+                    }}
+                  >
+                    <option value="">Select from list…</option>
+                    {repoInfo.branches.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           )}
 
