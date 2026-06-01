@@ -70,8 +70,9 @@ You can run a threat model directly against a GitHub repository, no local
 checkout required.
 
 1. **Public repo** — go to **Threat Modeling → Import from GitHub**, paste the
-   repo URL (`https://github.com/owner/repo`), click **Look up**, choose a
-   branch / tag / commit, click **Analyze repository**, then **Run threat
+   repo URL (`https://github.com/owner/repo`), click **Look up**, confirm the
+   **default branch** (shown separately and pre-filled in **Branch name**),
+   adjust the ref if needed, click **Analyze repository**, then **Run threat
    model** once the context fields are reviewed (see _Two-Step Threat
    Modeling_ above). The backend downloads the GitHub zipball, extracts it
    under `backend/uploads/`, stages context, runs the analysis pipeline, and
@@ -85,6 +86,13 @@ Safety limits are enforced server-side: archives are streamed to disk with a
 size cap (default 50 MB, configurable in **Settings → GitHub Import Limits**),
 and `gitRef` values are validated against shell metacharacters before any
 download begins.
+
+**Branch selection (v1.7.3+):** GitHub's branches API returns at most 100
+names in alphabetical order, so the default branch (e.g. `master`) is often
+missing from that list on large repos. After **Look up**, the UI shows the
+default branch separately, pre-fills a **Branch name** text field (type any
+branch name), and offers an optional **Listed branches** dropdown for quick
+picks from the subset GitHub returned. Tags and commit SHAs are unchanged.
 
 ## 🐳 Docker Compose
 
@@ -143,6 +151,13 @@ docker-compose down -v
 docker-compose ps
 ```
 
+The backend image installs **`appsec-agent@3.0.1`**, which bundles
+`@anthropic-ai/claude-agent-sdk` with per-platform native `claude` binaries
+(no separate global `@anthropic-ai/claude-code` install). `backend/Dockerfile`
+includes a build-time sanity check that verifies the correct Linux glibc native
+package (`linux-x64` or `linux-arm64`) and `agent-run` are present before the
+image is tagged.
+
 ## ✨ Features
 
 ### Web Dashboard
@@ -150,10 +165,10 @@ docker-compose ps
   - Uses built-in `threat_modeler` role with YAML configuration
   - Two source paths via tabbed UI:
     - **Upload directory** - bundle a local repository as a ZIP for analysis
-    - **Import from GitHub** - paste a `https://github.com/owner/repo` URL, pick a branch / tag / commit, and the backend downloads the zipball directly
+    - **Import from GitHub** - paste a `https://github.com/owner/repo` URL, pick branch / tag / commit (default branch pre-filled; manual branch entry for large repos), and the backend downloads the zipball directly
   - **Two-step stage → run flow (v1.7.0+):** every job goes through `appsec-agent`'s `context_extractor` (Haiku) to auto-draft five context fields — project summary, security context, deployment context, developer guidance, suggested exclusions — plus a free-form "additional notes" field. All six are user-editable; the populated text is concatenated and passed to the threat modeler as `-c <text>`. See the _Two-Step Threat Modeling_ section above
   - Public repos work out of the box; private repos use a per-user encrypted Personal Access Token configured under **Settings → GitHub**
-  - Structured JSON output with predefined schema (powered by appsec-agent v1.6+)
+  - Structured JSON output with predefined schema (powered by `appsec-agent` 3.x)
   - Interactive threat-aware Data Flow Diagrams with pan/zoom, node search, type/severity filters, and trust boundary grouping (React Flow canvas)
   - Sortable threat tables with severity and STRIDE category badges
   - Risk Registry with cross-referenced threat IDs
@@ -297,18 +312,23 @@ cd backend && npm test
 cd frontend && npm test
 ```
 
-**Run frontend DFD E2E (Chromium; starts Next on port 3333 via `dev:e2e`):**
+**Run frontend E2E (Chromium; 26 specs — starts Next on port 3333 via `dev:e2e`):**
 ```bash
 cd frontend && npm run e2e:install   # once, installs Playwright browser
 cd frontend && npm run e2e
 ```
 
+To run against an already-running dev server instead:
+
+```bash
+cd frontend && PLAYWRIGHT_BASE_URL=http://localhost:3000 npm run e2e
+```
+
 ### Test Coverage
 
 - **Backend**: Comprehensive test coverage for authentication, models, routes, and middleware
-- **Frontend**: Tests for API client, contexts, utilities, components, DFD converters/layout, and optional Playwright E2E for the DFD tab (`npm run e2e`)
+- **Frontend**: Jest unit tests for API client, contexts, utilities, and components; Playwright E2E for DFD, GitHub import, staging, and report pages (`npm run e2e`)
 - **CLI Integration**: Tests for `agent-run` CLI execution and error handling
-- **Total**: All tests passing ✅
 
 See [SETUP.md](./SETUP.md) for more details on testing.
 

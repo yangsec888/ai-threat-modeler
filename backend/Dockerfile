@@ -17,33 +17,40 @@ COPY package*.json ./
 RUN npm ci --only=production && \
     npm cache clean --force
 
-# Sanity check the Claude Agent SDK install.
+# Sanity check the Claude Agent SDK + appsec-agent install.
 #
-# backend/package.json declares @anthropic-ai/claude-agent-sdk at ^0.2.39.
-# The lockfile currently resolves a pre-native-split release that ships a
-# pure-JS `cli.js` and spawns it via node. Starting at 0.2.114, the SDK
-# moved to per-platform native binaries whose resolver (`lJ()` in sdk.mjs)
-# picks the musl variant before the glibc one with no libc detection — on
-# Debian-based images (this one) this fails at spawn time with a misleading
-# "Claude Code native binary not found" error.
-#
-# This step fails the build if a future transitive bump or lockfile regen
-# silently pulls the SDK onto a native-binary release, so the regression is
-# caught at build time instead of at the next prod spawn.
-RUN SDK_PKG=$(find /app/node_modules -type f -path '*@anthropic-ai/claude-agent-sdk/package.json' | head -1) && \
-    test -n "$SDK_PKG" || { echo "[sanity] @anthropic-ai/claude-agent-sdk not installed"; exit 1; } && \
-    SDK_DIR=$(dirname "$SDK_PKG") && \
+# appsec-agent@3.0.1+ pins @anthropic-ai/claude-agent-sdk to a native-binary
+# release (0.2.141+). The SDK ships per-platform optional packages; this image
+# is Debian bookworm (glibc), so we require the linux-x64 or linux-arm64 variant
+# and its bundled `claude` binary — not the obsolete pure-JS cli.js layout from
+# pre-0.2.114 releases.
+RUN SDK_PKG="/app/node_modules/@anthropic-ai/claude-agent-sdk/package.json" && \
+    test -f "$SDK_PKG" || { echo "[sanity] @anthropic-ai/claude-agent-sdk not installed"; exit 1; } && \
     SDK_VER=$(node -p "require('$SDK_PKG').version") && \
-    test -f "$SDK_DIR/cli.js" || { \
-      echo "[sanity] $SDK_DIR/cli.js missing — SDK may have moved to a native-binary release"; exit 1; \
+    test -f /app/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs || { \
+      echo "[sanity] sdk.mjs missing in claude-agent-sdk $SDK_VER"; exit 1; \
     } && \
-    NATIVE=$(find /app/node_modules -type d -name 'claude-agent-sdk-*') && \
-    if [ -n "$NATIVE" ]; then \
-      echo "[sanity] unexpected native SDK variant(s) found:"; echo "$NATIVE"; \
-      echo "[sanity] claude-agent-sdk drifted onto native-binary release — pin to a pre-0.2.114 pure-JS version before shipping"; \
-      exit 1; \
+    ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+      NATIVE_PKG="@anthropic-ai/claude-agent-sdk-linux-x64"; \
+      NATIVE_DIR="/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+      NATIVE_PKG="@anthropic-ai/claude-agent-sdk-linux-arm64"; \
+      NATIVE_DIR="/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64"; \
+    else \
+      echo "[sanity] unsupported container arch: $ARCH"; exit 1; \
     fi && \
-    echo "[sanity] claude-agent-sdk at $SDK_VER (pure-JS at $SDK_DIR)"
+    test -f "$NATIVE_DIR/claude" || { \
+      echo "[sanity] $NATIVE_PKG claude binary missing — optional native package may not have installed"; exit 1; \
+    } && \
+    test -x "$NATIVE_DIR/claude" || { \
+      echo "[sanity] $NATIVE_DIR/claude is not executable"; exit 1; \
+    } && \
+    AGENT_RUN="/app/node_modules/appsec-agent/dist/bin/agent-run.js" && \
+    test -f "$AGENT_RUN" || { \
+      echo "[sanity] appsec-agent agent-run missing at $AGENT_RUN"; exit 1; \
+    } && \
+    echo "[sanity] claude-agent-sdk $SDK_VER with $NATIVE_PKG claude binary; appsec-agent agent-run present"
 
 # Build application
 COPY tsconfig.json ./

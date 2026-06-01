@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Root and backend `appsec-agent` dependency bumped from `^2.1.6` / `^2.1.7` to `^3.0.1`**, aligning the standalone CLI package with the backend. Root package version **1.7.3**, frontend package version **1.7.3**.
+- **`backend/Dockerfile` sanity check updated for native Claude Agent SDK (0.2.141+).** Replaced the v1.4.1 pure-JS `cli.js` guard with a build-time check that the correct Linux glibc native package (`linux-x64` or `linux-arm64`) and `appsec-agent`'s `agent-run` are present.
 
 ## [1.7.1] - 2026-05-22
 
