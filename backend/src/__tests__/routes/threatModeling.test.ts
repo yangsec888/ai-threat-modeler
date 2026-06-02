@@ -28,9 +28,11 @@ jest.mock('better-sqlite3', () => {
 // Mock SettingsModel before importing routes (routes import SettingsModel)
 jest.mock('../../models/settings', () => ({
   SettingsModel: {
-    getAnthropicConfig: jest.fn(() => ({
+    getAgentProviderConfig: jest.fn(() => ({
+      provider: 'claude',
       apiKey: 'test-api-key',
       baseUrl: 'https://api.anthropic.com',
+      model: null,
       claudeCodeMaxOutputTokens: null,
     })),
     get: jest.fn(() => ({

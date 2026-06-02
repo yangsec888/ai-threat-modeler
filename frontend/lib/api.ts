@@ -564,7 +564,13 @@ export const api = {
     encryption_key?: string;
     anthropic_api_key?: string;
     anthropic_base_url?: string;
+    openai_api_key?: string;
+    openai_base_url?: string;
+    llm_provider?: 'claude' | 'codex';
+    claude_model?: string | null;
+    openai_model?: string;
     claude_code_max_output_tokens?: number | null;
+    github_max_archive_size_mb?: number;
   }) => {
     const response = await fetch(`${API_BASE_URL}/settings`, {
       method: 'PUT',
@@ -596,11 +602,11 @@ export const api = {
     return response.json();
   },
 
-  validateApiKey: async (apiKey: string, baseUrl?: string) => {
+  validateApiKey: async (apiKey: string, baseUrl?: string, provider: 'claude' | 'codex' = 'claude') => {
     const response = await fetch(`${API_BASE_URL}/settings/validate-api-key`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ api_key: apiKey, base_url: baseUrl }),
+      body: JSON.stringify({ api_key: apiKey, base_url: baseUrl, provider }),
     });
     
     if (!response.ok) {

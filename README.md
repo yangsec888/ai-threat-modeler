@@ -190,8 +190,12 @@ image is tagged.
 - **Protected Routes** - All API endpoints require authentication
 
 ### Settings Management
+- **Switchable Model Provider (v2.0.0+)** - Choose **Anthropic Claude** (default) or **OpenAI** from the admin Settings panel; the selection applies to threat modeling, chat, and context extraction with no redeploy
+  - OpenAI runs through `appsec-agent`'s Codex provider (`--provider codex`); the OpenAI key is supplied as `CODEX_API_KEY` and models such as `gpt-4.1`, `gpt-4.1-mini`, and `o3` are supported
+  - Per-provider model and base URL are configurable; provider-aware key validation hits the matching `/models` endpoint
+  - Enabling OpenAI requires the `codex` CLI in the backend image (see `backend/Dockerfile`)
 - **Database-First Configuration** - All API credentials stored securely in database
-  - Configure Anthropic API key and base URL through admin settings panel
+  - Configure Anthropic and OpenAI API keys and base URLs through the admin settings panel
   - Encrypted storage with automatic key management
   - No environment variables required for API credentials
 - **Claude Output Token Limits** - Configure `CLAUDE_CODE_MAX_OUTPUT_TOKENS` to handle large responses
@@ -248,11 +252,12 @@ threat-model-ai/
    - Set up the database and default admin user
    - Install and build dependencies
 
-2. **Configure Settings** - Set up your Anthropic API credentials
+2. **Configure Settings** - Set up your model provider credentials
    - Log in to the web dashboard (default: `admin`/`admin`)
    - Navigate to Settings and configure:
-     - Anthropic API Key
-     - Anthropic Base URL (if using custom endpoint)
+     - **LLM Provider** — Anthropic Claude (default) or OpenAI
+     - Anthropic API Key + Base URL, and optional Claude model (default: `opus`)
+     - OpenAI API Key + Base URL, and OpenAI model (default: `gpt-4.1`) when using the OpenAI provider
      - Claude Code Max Output Tokens (default: 32,000)
 
 3. **Start Using the Application**

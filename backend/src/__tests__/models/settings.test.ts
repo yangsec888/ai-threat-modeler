@@ -24,6 +24,13 @@ const mockSettings = {
   encryption_key: 'test-encryption-key-12345678901234567890',
   anthropic_api_key: null,
   anthropic_base_url: 'https://api.anthropic.com',
+  openai_api_key: null,
+  openai_base_url: 'https://api.openai.com/v1',
+  llm_provider: 'claude',
+  claude_model: null,
+  openai_model: 'gpt-4.1',
+  claude_code_max_output_tokens: 32000,
+  github_max_archive_size_mb: 50,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
 };
@@ -245,6 +252,52 @@ describe('SettingsModel', () => {
       });
 
       expect(() => SettingsModel.getAnthropicConfig()).toThrow('Anthropic API key not configured');
+    });
+  });
+
+  describe('getAgentProviderConfig', () => {
+    it('returns Claude config when llm_provider is claude', () => {
+      const encryptionKey = 'test-encryption-key-12345678901234567890';
+      const encryptedApiKey = encrypt('test-api-key', encryptionKey);
+      mockGetStmt.get.mockReturnValue({
+        ...mockSettings,
+        encryption_key: encryptionKey,
+        anthropic_api_key: encryptedApiKey,
+        llm_provider: 'claude',
+        claude_model: 'sonnet',
+      });
+
+      const config = SettingsModel.getAgentProviderConfig();
+      expect(config.provider).toBe('claude');
+      expect(config.apiKey).toBe('test-api-key');
+      expect(config.model).toBe('sonnet');
+    });
+
+    it('returns Codex config when llm_provider is codex', () => {
+      const encryptionKey = 'test-encryption-key-12345678901234567890';
+      const encryptedOpenAiKey = encrypt('sk-openai', encryptionKey);
+      mockGetStmt.get.mockReturnValue({
+        ...mockSettings,
+        encryption_key: encryptionKey,
+        openai_api_key: encryptedOpenAiKey,
+        llm_provider: 'codex',
+        openai_model: 'gpt-4.1',
+      });
+
+      const config = SettingsModel.getAgentProviderConfig();
+      expect(config.provider).toBe('codex');
+      expect(config.apiKey).toBe('sk-openai');
+      expect(config.model).toBe('gpt-4.1');
+    });
+
+    it('throws when OpenAI key missing for codex provider', () => {
+      mockGetStmt.get.mockReturnValue({
+        ...mockSettings,
+        llm_provider: 'codex',
+        openai_api_key: null,
+      });
+
+      expect(() => SettingsModel.getAgentProviderConfig()).toThrow('OpenAI API key not configured');
     });
   });
 });

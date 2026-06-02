@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-06-01
+
+### Added
+- **Switchable model provider (Anthropic Claude ↔ OpenAI) from the admin Settings panel.** Admins can now select which model provider backs every agent invocation — threat modeling, interactive chat, and context extraction — without redeploying. Claude remains the default; OpenAI runs through `appsec-agent@3.0.1`'s Codex provider (`--provider codex`), with the OpenAI key supplied as `CODEX_API_KEY` and OpenAI models such as `gpt-4.1`, `gpt-4.1-mini`, and `o3`.
+- **`backend/src/services/agentInvocation.ts`** — central builder that turns the resolved provider config into `agent-run` argv + env. Claude → `-k`/`-u` + `ANTHROPIC_API_KEY` (+ `CLAUDE_CODE_MAX_OUTPUT_TOKENS`); OpenAI → `--provider codex -m <model>` + `CODEX_API_KEY`/`CODEX_BASE_URL`. Always passes an explicit `-m` under codex so the default never silently resolves to the expensive `o3` mapping. Context extraction uses a cheap per-provider model (`haiku` / `gpt-4.1-mini`).
+- **`SettingsModel.getAgentProviderConfig()`** — returns a discriminated `{ provider, apiKey, baseUrl, model, claudeCodeMaxOutputTokens }` union, failing closed when the selected provider's key is unconfigured.
+- **Settings schema:** new `llm_provider`, `openai_api_key` (encrypted at rest), `openai_base_url`, `claude_model`, and `openai_model` columns with idempotent migrations.
+- **Admin Settings UI** — provider dropdown (Anthropic Claude / OpenAI Codex), an OpenAI API key + base URL + model section mirroring the Anthropic fields, and provider-aware API-key validation (`/v1/models` with `x-api-key` for Anthropic; `/models` with `Authorization: Bearer` for OpenAI).
+- **`backend/Dockerfile`** — added a build-time sanity check that the `@openai/codex` CLI and its platform vendor package (`@openai/codex-linux-x64` / `-arm64`) resolve, mirroring the existing Claude native-binary guard.
+- **Tests:** `agentInvocation` unit tests (Claude vs codex argv/env), `getAgentProviderConfig` model tests, provider-aware settings/route coverage, and updated `contextExtractorRunner`, `chat`, `threatModeling`, and frontend `Settings` suites.
+
+### Changed
+- **All three agent spawn sites now read provider config via `getAgentProviderConfig()`** instead of the Anthropic-only `getAnthropicConfig()`: `routes/threatModeling.ts`, `routes/chat.ts`, and `services/contextExtractorRunner.ts` (via `stagingOrchestrator.ts`). The chat health/error paths report the active provider.
+- **Root, backend, and frontend package versions bumped to `2.0.0`.** This is a major release because the provider abstraction changes how agent credentials and models are configured and stored.
+
+### Notes
+- OpenAI support depends on `appsec-agent@3.0.1`'s Codex provider, which spawns a `codex` CLI binary. Deployments that enable the OpenAI provider must use the updated `backend/Dockerfile` so the `codex` binary is present. Claude deployments are unaffected.
+
 ## [1.7.3] - 2026-06-01
 
 ### Fixed

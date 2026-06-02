@@ -276,6 +276,26 @@ try {
     db.exec(`ALTER TABLE settings ADD COLUMN anthropic_api_key_legacy_bak TEXT`);
     logger.info('✅ Added anthropic_api_key_legacy_bak column to settings table (for safe KDF migration)');
   }
+  if (!columnNames.includes('llm_provider')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN llm_provider TEXT DEFAULT 'claude'`);
+    logger.info('✅ Added llm_provider column to settings table');
+  }
+  if (!columnNames.includes('openai_api_key')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN openai_api_key TEXT`);
+    logger.info('✅ Added openai_api_key column to settings table');
+  }
+  if (!columnNames.includes('openai_base_url')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN openai_base_url TEXT DEFAULT 'https://api.openai.com/v1'`);
+    logger.info('✅ Added openai_base_url column to settings table');
+  }
+  if (!columnNames.includes('claude_model')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN claude_model TEXT`);
+    logger.info('✅ Added claude_model column to settings table');
+  }
+  if (!columnNames.includes('openai_model')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN openai_model TEXT DEFAULT 'gpt-4.1'`);
+    logger.info('✅ Added openai_model column to settings table');
+  }
 } catch (error: unknown) {
   const message = error instanceof Error ? error.message : 'Unknown error occurred';
   logger.warn('Settings migration warning', { error: message });
@@ -411,6 +431,8 @@ export interface ThreatModelingJob {
   completed_at: string | null;
 }
 
+export type LlmProvider = 'claude' | 'codex';
+
 export interface Settings {
   id: number;
   encryption_key: string;
@@ -420,6 +442,11 @@ export interface Settings {
   github_max_archive_size_mb: number | null;
   encryption_kdf_version: number | null;
   anthropic_api_key_legacy_bak: string | null;
+  llm_provider: LlmProvider | null;
+  openai_api_key: string | null;
+  openai_base_url: string | null;
+  claude_model: string | null;
+  openai_model: string | null;
   created_at: string;
   updated_at: string;
 }

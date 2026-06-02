@@ -115,9 +115,13 @@ describe('runContextExtractor argument shape', () => {
     await runContextExtractor(
       'staging-1',
       '/tmp/extracted',
-      'sk-test',
-      'https://api.anthropic.test',
-      null,
+      {
+        provider: 'claude',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.anthropic.test',
+        model: null,
+        claudeCodeMaxOutputTokens: null,
+      },
       'hello-world',
       'octocat',
     );
@@ -186,9 +190,13 @@ describe('runContextExtractor argument shape', () => {
     await runContextExtractor(
       'staging-2',
       '/tmp/extracted',
-      'sk-test',
-      'https://api.anthropic.test',
-      null,
+      {
+        provider: 'claude',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.anthropic.test',
+        model: null,
+        claudeCodeMaxOutputTokens: null,
+      },
       'hello-world',
     );
 
@@ -203,9 +211,13 @@ describe('runContextExtractor argument shape', () => {
     await runContextExtractor(
       'staging-3',
       '/tmp/extracted',
-      'sk-test',
-      'https://api.anthropic.test',
-      null,
+      {
+        provider: 'claude',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.anthropic.test',
+        model: null,
+        claudeCodeMaxOutputTokens: null,
+      },
       'hello-world',
     );
 

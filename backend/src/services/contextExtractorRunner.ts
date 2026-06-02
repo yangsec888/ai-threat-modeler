@@ -16,6 +16,8 @@ import { buildExtractionContext } from './extractionContextBuilder';
 import { ThreatModelingStagingModel } from '../models/threatModelingStaging';
 import { mapExtractorResultToDraft } from '../types/contextFields';
 import { awaitAgentChildExit } from '../utils/awaitAgentChildExit';
+import { buildAgentRunInvocation, CONTEXT_EXTRACTOR_MODEL } from './agentInvocation';
+import type { AgentProviderConfig } from '../models/settings';
 import logger from '../utils/logger';
 
 const EXTRACTOR_TIMEOUT_MS = 120_000;
@@ -23,9 +25,7 @@ const EXTRACTOR_TIMEOUT_MS = 120_000;
 export async function runContextExtractor(
   stagingId: string,
   extractedDir: string,
-  anthropicApiKey: string,
-  anthropicBaseUrl: string,
-  claudeCodeMaxOutputTokens: number | null,
+  providerConfig: AgentProviderConfig,
   repoName: string,
   owner: string = 'unknown',
 ): Promise<void> {
@@ -50,35 +50,24 @@ export async function runContextExtractor(
     fs.writeFileSync(contextInputPath, JSON.stringify(ctx, null, 2), 'utf-8');
 
     const agentRunPath = findAgentRunPath();
-    // Haiku is more than enough for this role: tools are disabled,
-    // max_turns=1, and the output is small structured JSON. Opus
-    // (the agent-run default) is ~30x more expensive with no quality
-    // benefit on a pure transform task, and noticeably slower for the
-    // interactive "Analyze repository" click.
-    const agentRunCommand = [
+    const roleArgs = [
       'node',
       agentRunPath,
       '-r',
       'context_extractor',
-      '-m',
-      'haiku',
       '--extract-context',
       contextInputName,
       '-o',
       outputName,
       '-f',
       'json',
-      '-k',
-      anthropicApiKey,
-      '-u',
-      anthropicBaseUrl,
     ];
-
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    env.ANTHROPIC_API_KEY = anthropicApiKey;
-    if (claudeCodeMaxOutputTokens) {
-      env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = claudeCodeMaxOutputTokens.toString();
-    }
+    const { args: providerArgs, env } = buildAgentRunInvocation(
+      providerConfig,
+      [],
+      { modelOverride: CONTEXT_EXTRACTOR_MODEL[providerConfig.provider] },
+    );
+    const agentRunCommand = [...roleArgs, ...providerArgs];
 
     const child = spawn(agentRunCommand[0], agentRunCommand.slice(1), {
       cwd: tempDir,

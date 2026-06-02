@@ -7,18 +7,8 @@ import { ThreatModelingStagingModel } from '../models/threatModelingStaging';
 import { runContextExtractor } from './contextExtractorRunner';
 import logger from '../utils/logger';
 
-export function getAnthropicSettingsForAgent(): {
-  anthropicApiKey: string;
-  anthropicBaseUrl: string;
-  claudeCodeMaxOutputTokens: number | null;
-} {
-  const anthropicConfig = SettingsModel.getAnthropicConfig();
-  const settings = SettingsModel.get(false);
-  return {
-    anthropicApiKey: anthropicConfig.apiKey,
-    anthropicBaseUrl: anthropicConfig.baseUrl,
-    claudeCodeMaxOutputTokens: settings.claude_code_max_output_tokens,
-  };
+export function getAgentSettingsForAgent() {
+  return SettingsModel.getAgentProviderConfig();
 }
 
 export function scheduleStagingExtraction(
@@ -27,15 +17,25 @@ export function scheduleStagingExtraction(
   repoName: string,
   owner: string = 'unknown',
 ): void {
-  const { anthropicApiKey, anthropicBaseUrl, claudeCodeMaxOutputTokens } =
-    getAnthropicSettingsForAgent();
+  let providerConfig;
+  try {
+    providerConfig = getAgentSettingsForAgent();
+  } catch (err) {
+    logger.error('scheduleStagingExtraction.missingProviderConfig', {
+      stagingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    ThreatModelingStagingModel.markFailed(
+      stagingId,
+      err instanceof Error ? err.message : 'Agent provider not configured',
+    );
+    return;
+  }
 
   runContextExtractor(
     stagingId,
     extractedDir,
-    anthropicApiKey,
-    anthropicBaseUrl,
-    claudeCodeMaxOutputTokens,
+    providerConfig,
     repoName,
     owner,
   ).catch((err) => {

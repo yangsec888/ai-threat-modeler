@@ -17,6 +17,7 @@ import { SettingsModel } from '../models/settings';
 import db from '../db/database';
 import logger from '../utils/logger';
 import { findAgentRunPath } from '../services/agentRunPath';
+import { buildAgentRunInvocation } from '../services/agentInvocation';
 import { extractZip } from '../services/zipExtract';
 import { listPopulatedContextFieldNames } from '../types/contextFields';
 import {
@@ -246,27 +247,19 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
       extractedDir = jobRecord.extracted_dir;
     }
 
-    // Get Anthropic API configuration from database
-    let anthropicApiKey: string;
-    let anthropicBaseUrl: string;
-    let claudeCodeMaxOutputTokens: number | null = null;
+    // Get agent provider configuration from database
+    let providerConfig;
     try {
-      const anthropicConfig = SettingsModel.getAnthropicConfig();
-      anthropicApiKey = anthropicConfig.apiKey;
-      anthropicBaseUrl = anthropicConfig.baseUrl;
-      logger.info(`🔑 Using Anthropic API configuration from database (base URL: ${anthropicBaseUrl})`);
-      
-      // Get Claude Code max output tokens setting
-      const settings = SettingsModel.get(false);
-      claudeCodeMaxOutputTokens = settings.claude_code_max_output_tokens;
-      if (claudeCodeMaxOutputTokens) {
-        logger.info(`🔧 Using Claude Code max output tokens: ${claudeCodeMaxOutputTokens}`);
-      } else {
-        logger.info(`ℹ️  Claude Code max output tokens not set, using default (32000)`);
+      providerConfig = SettingsModel.getAgentProviderConfig();
+      logger.info(
+        `🔑 Using ${providerConfig.provider} provider from admin settings (base URL: ${providerConfig.baseUrl})`,
+      );
+      if (providerConfig.claudeCodeMaxOutputTokens) {
+        logger.info(`🔧 Using Claude Code max output tokens: ${providerConfig.claudeCodeMaxOutputTokens}`);
       }
     } catch (error) {
-      logger.error('Failed to get Anthropic configuration from database:', error);
-      throw new Error('Anthropic API configuration not found. Please configure settings in the admin panel.');
+      logger.error('Failed to get agent provider configuration from database:', error);
+      throw new Error('Agent provider not configured. Please configure settings in the admin panel.');
     }
 
     // Find agent-run CLI script path
@@ -477,15 +470,15 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
       // Format: node bin/agent-run -r threat_modeler -s ./repoName -k API_KEY -u API_URI
       // Note: Query is loaded from built-in YAML config file, not passed via CLI flag
       // We're in workDir, so use ./repoName as the source directory
-      const agentRunCommand = [
+      const roleArgs = [
         'node',
         agentRunPath,
         '-r', 'threat_modeler',
-        '-s', `./${agentRunRepoName}`, // Repository subdirectory relative to workDir
-        '-f', 'json', // Structured JSON output with schema enforcement
-        '-k', anthropicApiKey,
-        '-u', anthropicBaseUrl,
+        '-s', `./${agentRunRepoName}`,
+        '-f', 'json',
       ];
+      const { args: providerArgs, env } = buildAgentRunInvocation(providerConfig, []);
+      const agentRunCommand = [...roleArgs, ...providerArgs];
 
       // argv exposure: -c value is visible in process list (same as -k). Migrate to stdin/env when upstream supports it.
       if (contextText.length > 0) {
@@ -494,29 +487,15 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
       
       logger.info(`🚀 Starting agent-run CLI execution...`);
       logger.info(
-        `   Command: node ${path.basename(agentRunPath)} -r threat_modeler -s ./${agentRunRepoName} -k [REDACTED] -u ${anthropicBaseUrl}${contextText.length > 0 ? ' -c [REDACTED]' : ''}`,
+        `   Command: node ${path.basename(agentRunPath)} -r threat_modeler -s ./${agentRunRepoName} --provider ${providerConfig.provider} [REDACTED]${contextText.length > 0 ? ' -c [REDACTED]' : ''}`,
       );
       logger.info(`   Note: Query will be loaded from built-in YAML config file for threat_modeler role`);
       
       // Execute the agent-run CLI command using spawn (non-blocking, async)
-      // This prevents blocking the Node.js event loop and freezing the frontend
-      // Set up environment variables for the child process
-      const env = { ...process.env };
-      
-      // CRITICAL: Set ANTHROPIC_API_KEY in environment for Claude Code SDK
-      // The SDK has environment inheritance issues in Docker (GitHub issue #4383)
-      // Setting it here ensures it's available when the SDK spawns Claude Code
-      env.ANTHROPIC_API_KEY = anthropicApiKey;
-      
-      if (claudeCodeMaxOutputTokens) {
-        env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = claudeCodeMaxOutputTokens.toString();
-        logger.info(`🔧 Setting CLAUDE_CODE_MAX_OUTPUT_TOKENS=${claudeCodeMaxOutputTokens} for agent-run`);
-      }
-      
       const childProcess = spawn(agentRunCommand[0], agentRunCommand.slice(1), {
         cwd: workDir,
-        env: env, // Pass environment variables including ANTHROPIC_API_KEY and CLAUDE_CODE_MAX_OUTPUT_TOKENS
-        stdio: ['ignore', 'pipe', 'pipe'] // stdin: ignore, stdout: pipe, stderr: pipe
+        env,
+        stdio: ['ignore', 'pipe', 'pipe']
       });
 
       if (childProcess.stdout) {

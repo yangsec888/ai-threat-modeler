@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import { Readable, Writable } from 'stream';
 import logger from '../utils/logger';
 import { findAgentRunPath } from '../services/agentRunPath';
+import { buildAgentRunInvocation } from '../services/agentInvocation';
 
 const router = Router();
 
@@ -46,46 +47,20 @@ setInterval(() => {
 
 // Create a new interactive chat session for a user
 async function createChatSession(userId: number, role: string): Promise<ChatSession> {
-  // Get Anthropic API configuration from database
-  const anthropicConfig = SettingsModel.getAnthropicConfig();
-  const settings = SettingsModel.get(false);
-  const claudeCodeMaxOutputTokens = settings.claude_code_max_output_tokens;
+  const providerConfig = SettingsModel.getAgentProviderConfig();
 
-  // Find agent-run CLI
   const agentRunPath = findAgentRunPath();
-  logger.info(`🚀 Starting interactive session for user ${userId} with role: ${role}`);
+  logger.info(`🚀 Starting interactive session for user ${userId} with role: ${role} (${providerConfig.provider})`);
   logger.info(`   Agent path: ${agentRunPath}`);
 
-  // Construct agent-run CLI command for interactive mode
-  // Format: node bin/agent-run -r simple_query_agent -k API_KEY -u API_URI
-  // Interactive mode is the default when -q (query) flag is NOT provided
-  const agentRunCommand = [
+  const { args: providerArgs, env } = buildAgentRunInvocation(providerConfig, [
     agentRunPath,
     '-r', role,
-    '-k', anthropicConfig.apiKey,
-    '-u', anthropicConfig.baseUrl
-  ];
+  ]);
 
-  // Set up environment variables
-  const env = { ...process.env };
-
-  // CRITICAL: Set ANTHROPIC_API_KEY in environment for Claude Code SDK.
-  // The SDK has environment inheritance issues in Docker (GitHub issue #4383)
-  // and reads ANTHROPIC_API_KEY from env, not just the agent-run -k flag.
-  // Without this, the chat session reports "Invalid API key" even when the
-  // DB-stored key is correct (it falls back to whatever is on the parent
-  // process env, which is typically nothing).
-  // Mirrors the same fix in routes/threatModeling.ts.
-  env.ANTHROPIC_API_KEY = anthropicConfig.apiKey;
-
-  if (claudeCodeMaxOutputTokens) {
-    env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = claudeCodeMaxOutputTokens.toString();
-  }
-
-  // Spawn the process in interactive mode
-  const childProcess = spawn('node', agentRunCommand, {
-    env: env,
-    stdio: ['pipe', 'pipe', 'pipe'] // stdin: pipe, stdout: pipe, stderr: pipe
+  const childProcess = spawn('node', providerArgs, {
+    env,
+    stdio: ['pipe', 'pipe', 'pipe']
   });
 
   if (!childProcess.stdin || !childProcess.stdout || !childProcess.stderr) {
@@ -274,14 +249,14 @@ router.post('/', authenticateToken, async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Check if API configuration is available
+    // Check if agent provider configuration is available
     try {
-      SettingsModel.getAnthropicConfig();
+      SettingsModel.getAgentProviderConfig();
     } catch (error) {
-      logger.error('Failed to get Anthropic configuration from database:', error);
+      logger.error('Failed to get agent provider configuration from database:', error);
       return res.status(500).json({ 
         error: 'Configuration error', 
-        message: 'Anthropic API configuration not found. Please configure settings in the admin panel.' 
+        message: 'Agent provider not configured. Please configure settings in the admin panel.',
       });
     }
 
@@ -409,7 +384,7 @@ router.get('/health', authenticateToken, async (req: AuthRequest, res: Response)
     const agentRunPath = findAgentRunPath();
     
     // Check if API configuration is available
-    const anthropicConfig = SettingsModel.getAnthropicConfig();
+    const providerConfig = SettingsModel.getAgentProviderConfig();
     
     // Count active sessions
     const activeSessions = chatSessions.size;
@@ -417,8 +392,9 @@ router.get('/health', authenticateToken, async (req: AuthRequest, res: Response)
     res.json({
       status: 'healthy',
       agentRunPath: path.basename(agentRunPath),
-      apiConfigured: !!anthropicConfig.apiKey,
-      activeSessions
+      apiConfigured: !!providerConfig.apiKey,
+      provider: providerConfig.provider,
+      activeSessions,
     });
   } catch (error: unknown) {
     logger.error('Health check error:', error);

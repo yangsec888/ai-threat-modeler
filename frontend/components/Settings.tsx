@@ -30,8 +30,13 @@ export function Settings() {
   const { user, isAuthenticated } = useAuth()
   const { toasts, success, error: showError, removeToast } = useToast()
   const [encryptionKeyConfigured, setEncryptionKeyConfigured] = useState(false)
+  const [llmProvider, setLlmProvider] = useState<'claude' | 'codex'>('claude')
   const [anthropicApiKey, setAnthropicApiKey] = useState('')
   const [anthropicBaseUrl, setAnthropicBaseUrl] = useState('')
+  const [openaiApiKey, setOpenaiApiKey] = useState('')
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState('https://api.openai.com/v1')
+  const [claudeModel, setClaudeModel] = useState('')
+  const [openaiModel, setOpenaiModel] = useState('gpt-4.1')
   const [claudeCodeMaxOutputTokens, setClaudeCodeMaxOutputTokens] = useState<number | null>(32000)
   const [githubMaxArchiveSizeMb, setGithubMaxArchiveSizeMb] = useState<number>(50)
   const [timezone, setTimezone] = useState('UTC')
@@ -66,10 +71,15 @@ export function Settings() {
         const settings = response.settings
 
         setEncryptionKeyConfigured(!!settings.encryption_key_configured)
+        setLlmProvider(settings.llm_provider === 'codex' ? 'codex' : 'claude')
         setAnthropicBaseUrl(settings.anthropic_base_url || 'https://api.anthropic.com')
+        setOpenaiBaseUrl(settings.openai_base_url || 'https://api.openai.com/v1')
+        setClaudeModel(settings.claude_model ?? '')
+        setOpenaiModel(settings.openai_model || 'gpt-4.1')
         setClaudeCodeMaxOutputTokens(settings.claude_code_max_output_tokens ?? 32000)
         setGithubMaxArchiveSizeMb(settings.github_max_archive_size_mb ?? 50)
         setAnthropicApiKey('')
+        setOpenaiApiKey('')
 
         const currentConfig = getConfig()
         setTimezone(currentConfig.timezone || 'UTC')
@@ -100,15 +110,32 @@ export function Settings() {
         const updates: {
           anthropic_api_key?: string
           anthropic_base_url?: string
+          openai_api_key?: string
+          openai_base_url?: string
+          llm_provider?: 'claude' | 'codex'
+          claude_model?: string | null
+          openai_model?: string
           claude_code_max_output_tokens?: number | null
           github_max_archive_size_mb?: number
         } = {}
+
+        updates.llm_provider = llmProvider
 
         if (anthropicApiKey && anthropicApiKey.trim().length > 0) {
           updates.anthropic_api_key = anthropicApiKey
         }
         if (anthropicBaseUrl && anthropicBaseUrl.trim().length > 0) {
           updates.anthropic_base_url = anthropicBaseUrl
+        }
+        if (openaiApiKey && openaiApiKey.trim().length > 0) {
+          updates.openai_api_key = openaiApiKey
+        }
+        if (openaiBaseUrl && openaiBaseUrl.trim().length > 0) {
+          updates.openai_base_url = openaiBaseUrl
+        }
+        updates.claude_model = claudeModel.trim() ? claudeModel.trim() : null
+        if (openaiModel && openaiModel.trim().length > 0) {
+          updates.openai_model = openaiModel.trim()
         }
         if (claudeCodeMaxOutputTokens !== undefined && claudeCodeMaxOutputTokens !== null) {
           updates.claude_code_max_output_tokens = claudeCodeMaxOutputTokens
@@ -122,16 +149,38 @@ export function Settings() {
           try {
             const validationResult = await api.validateApiKey(
               updates.anthropic_api_key,
-              updates.anthropic_base_url || anthropicBaseUrl
+              updates.anthropic_base_url || anthropicBaseUrl,
+              'claude',
             )
             if (validationResult.valid) {
-              success(validationResult.message || 'API key is valid and working correctly', 0)
+              success(validationResult.message || 'Anthropic API key is valid and working correctly', 0)
             } else {
-              showError(validationResult.error || 'API key validation failed', 0)
+              showError(validationResult.error || 'Anthropic API key validation failed', 0)
             }
           } catch (validationErr) {
             const errorMsg = validationErr instanceof Error ? validationErr.message : 'Failed to validate API key'
-            showError(`API key validation error: ${errorMsg}`, 0)
+            showError(`Anthropic API key validation error: ${errorMsg}`, 0)
+          } finally {
+            setValidating(false)
+          }
+        }
+
+        if (updates.openai_api_key) {
+          setValidating(true)
+          try {
+            const validationResult = await api.validateApiKey(
+              updates.openai_api_key,
+              updates.openai_base_url || openaiBaseUrl,
+              'codex',
+            )
+            if (validationResult.valid) {
+              success(validationResult.message || 'OpenAI API key is valid and working correctly', 0)
+            } else {
+              showError(validationResult.error || 'OpenAI API key validation failed', 0)
+            }
+          } catch (validationErr) {
+            const errorMsg = validationErr instanceof Error ? validationErr.message : 'Failed to validate API key'
+            showError(`OpenAI API key validation error: ${errorMsg}`, 0)
           } finally {
             setValidating(false)
           }
@@ -144,10 +193,15 @@ export function Settings() {
         const response = await api.getSettings()
         const settings = response.settings
         setEncryptionKeyConfigured(!!settings.encryption_key_configured)
+        setLlmProvider(settings.llm_provider === 'codex' ? 'codex' : 'claude')
         setAnthropicBaseUrl(settings.anthropic_base_url || 'https://api.anthropic.com')
+        setOpenaiBaseUrl(settings.openai_base_url || 'https://api.openai.com/v1')
+        setClaudeModel(settings.claude_model ?? '')
+        setOpenaiModel(settings.openai_model || 'gpt-4.1')
         setClaudeCodeMaxOutputTokens(settings.claude_code_max_output_tokens ?? 32000)
         setGithubMaxArchiveSizeMb(settings.github_max_archive_size_mb ?? 50)
         setAnthropicApiKey('')
+        setOpenaiApiKey('')
       } else {
         updateConfig({
           anthropic: { apiKey: anthropicApiKey, baseUrl: anthropicBaseUrl },
@@ -367,6 +421,29 @@ export function Settings() {
             </div>
 
             <div>
+              <h3 className="text-lg font-semibold mb-4">LLM Provider</h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label htmlFor="llm-provider" className="text-sm font-medium">
+                    Active Provider
+                  </label>
+                  <select
+                    id="llm-provider"
+                    value={llmProvider}
+                    onChange={(e) => setLlmProvider(e.target.value as 'claude' | 'codex')}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    <option value="claude">Anthropic Claude</option>
+                    <option value="codex">OpenAI (Codex)</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Controls which model provider is used for threat modeling, chat, and context extraction.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div>
               <h3 className="text-lg font-semibold mb-4">Anthropic API Configuration</h3>
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -399,6 +476,22 @@ export function Settings() {
                 </div>
 
                 <div className="space-y-2">
+                  <label htmlFor="claude-model" className="text-sm font-medium">
+                    Claude Model
+                  </label>
+                  <Input
+                    id="claude-model"
+                    type="text"
+                    value={claudeModel}
+                    onChange={(e) => setClaudeModel(e.target.value)}
+                    placeholder="opus (default if empty)"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Examples: opus, sonnet, haiku, claude-sonnet-4-6. Leave empty for the agent default (opus).
+                  </p>
+                </div>
+
+                <div className="space-y-2">
                   <label htmlFor="claude-code-max-output-tokens" className="text-sm font-medium">
                     Claude Code Max Output Tokens
                   </label>
@@ -414,6 +507,56 @@ export function Settings() {
                     }}
                     placeholder="32000"
                   />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold mb-4">OpenAI API Configuration</h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label htmlFor="openai-api-key" className="text-sm font-medium">
+                    OpenAI API Key
+                  </label>
+                  <Input
+                    id="openai-api-key"
+                    type="password"
+                    value={openaiApiKey}
+                    onChange={(e) => setOpenaiApiKey(e.target.value)}
+                    placeholder="Enter your OpenAI API key (will be encrypted)"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Used when Active Provider is OpenAI (Codex). Leave empty to keep current value.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="openai-base-url" className="text-sm font-medium">
+                    OpenAI Base URL
+                  </label>
+                  <Input
+                    id="openai-base-url"
+                    type="text"
+                    value={openaiBaseUrl}
+                    onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+                    placeholder="https://api.openai.com/v1"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="openai-model" className="text-sm font-medium">
+                    OpenAI Model
+                  </label>
+                  <Input
+                    id="openai-model"
+                    type="text"
+                    value={openaiModel}
+                    onChange={(e) => setOpenaiModel(e.target.value)}
+                    placeholder="gpt-4.1"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Examples: gpt-4.1, gpt-4.1-mini, o3. Required when using the OpenAI provider.
+                  </p>
                 </div>
               </div>
             </div>

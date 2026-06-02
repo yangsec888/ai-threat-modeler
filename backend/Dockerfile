@@ -52,6 +52,32 @@ RUN SDK_PKG="/app/node_modules/@anthropic-ai/claude-agent-sdk/package.json" && \
     } && \
     echo "[sanity] claude-agent-sdk $SDK_VER with $NATIVE_PKG claude binary; appsec-agent agent-run present"
 
+# Sanity check @openai/codex-sdk + platform codex CLI (required for --provider codex).
+RUN CODEX_JS=$(node -p "require.resolve('@openai/codex/bin/codex.js')" 2>/dev/null || echo "") && \
+    if [ -z "$CODEX_JS" ]; then \
+      CODEX_JS=$(node -p "require.resolve('@openai/codex/bin/codex.js', { paths: ['/app/node_modules/appsec-agent'] })" 2>/dev/null || echo ""); \
+    fi && \
+    test -n "$CODEX_JS" || { echo "[sanity] @openai/codex bin/codex.js not resolvable"; exit 1; } && \
+    ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+      CODEX_NATIVE_PKG="@openai/codex-linux-x64"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+      CODEX_NATIVE_PKG="@openai/codex-linux-arm64"; \
+    else \
+      echo "[sanity] unsupported container arch for codex: $ARCH"; exit 1; \
+    fi && \
+    CODEX_NATIVE_DIR=$(dirname "$(dirname "$CODEX_JS")")/node_modules/$CODEX_NATIVE_PKG && \
+    if [ ! -d "$CODEX_NATIVE_DIR" ]; then \
+      CODEX_NATIVE_DIR="/app/node_modules/$CODEX_NATIVE_PKG"; \
+    fi && \
+    if [ ! -d "$CODEX_NATIVE_DIR" ]; then \
+      CODEX_NATIVE_DIR="/app/node_modules/appsec-agent/node_modules/$CODEX_NATIVE_PKG"; \
+    fi && \
+    test -d "$CODEX_NATIVE_DIR/vendor" || test -f "$CODEX_JS" || { \
+      echo "[sanity] $CODEX_NATIVE_PKG vendor or codex.js missing"; exit 1; \
+    } && \
+    echo "[sanity] @openai/codex resolved at $CODEX_JS; $CODEX_NATIVE_PKG present"
+
 # Build application
 COPY tsconfig.json ./
 COPY src ./src

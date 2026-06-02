@@ -14,9 +14,11 @@ import db from '../../db/database';
 // Mock SettingsModel before importing routes
 jest.mock('../../models/settings', () => ({
   SettingsModel: {
-    getAnthropicConfig: jest.fn(() => ({
+    getAgentProviderConfig: jest.fn(() => ({
+      provider: 'claude',
       apiKey: 'test-api-key',
       baseUrl: 'https://api.anthropic.com',
+      model: null,
       claudeCodeMaxOutputTokens: null,
     })),
     get: jest.fn(() => ({
@@ -174,9 +176,11 @@ describe('Chat Routes', () => {
     
     // Reset SettingsModel mock to default behavior
     const { SettingsModel } = require('../../models/settings');
-    SettingsModel.getAnthropicConfig.mockReturnValue({
+    SettingsModel.getAgentProviderConfig.mockReturnValue({
+      provider: 'claude',
       apiKey: 'test-api-key',
       baseUrl: 'https://api.anthropic.com',
+      model: null,
       claudeCodeMaxOutputTokens: null,
     });
     
@@ -355,7 +359,7 @@ describe('Chat Routes', () => {
     it('should handle missing ANTHROPIC_API_KEY', async () => {
       // Mock SettingsModel to throw error (simulating missing configuration)
       const { SettingsModel } = require('../../models/settings');
-      SettingsModel.getAnthropicConfig.mockImplementation(() => {
+      SettingsModel.getAgentProviderConfig.mockImplementation(() => {
         throw new Error('Anthropic API key not configured in settings');
       });
 
@@ -368,12 +372,14 @@ describe('Chat Routes', () => {
 
       expect(response.status).toBe(500);
       expect(response.body.error).toContain('Configuration error');
-      expect(response.body.message).toContain('Anthropic API configuration not found');
+      expect(response.body.message).toContain('Agent provider not configured');
 
       // Restore for other tests - reset to default mock
-      SettingsModel.getAnthropicConfig.mockReturnValue({
+      SettingsModel.getAgentProviderConfig.mockReturnValue({
+        provider: 'claude',
         apiKey: 'test-api-key',
         baseUrl: 'https://api.anthropic.com',
+        model: null,
         claudeCodeMaxOutputTokens: null,
       });
     });
