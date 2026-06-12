@@ -26,6 +26,11 @@ interface GitHubTokenStatus {
   lastUsedAt: string | null
 }
 
+interface ModelOption {
+  id: string
+  label: string
+}
+
 export function Settings() {
   const { user, isAuthenticated } = useAuth()
   const { toasts, success, error: showError, removeToast } = useToast()
@@ -37,6 +42,10 @@ export function Settings() {
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState('https://api.openai.com/v1')
   const [claudeModel, setClaudeModel] = useState('')
   const [openaiModel, setOpenaiModel] = useState('gpt-4.1')
+  const [claudeModels, setClaudeModels] = useState<ModelOption[]>([])
+  const [openaiModels, setOpenaiModels] = useState<ModelOption[]>([])
+  const [loadingClaudeModels, setLoadingClaudeModels] = useState(false)
+  const [loadingOpenaiModels, setLoadingOpenaiModels] = useState(false)
   const [claudeCodeMaxOutputTokens, setClaudeCodeMaxOutputTokens] = useState<number | null>(32000)
   const [githubMaxArchiveSizeMb, setGithubMaxArchiveSizeMb] = useState<number>(50)
   const [timezone, setTimezone] = useState('UTC')
@@ -90,6 +99,18 @@ export function Settings() {
         } catch (err) {
           console.warn('Failed to load GitHub token status:', err)
         }
+
+        // Best-effort: populate model dropdowns from each provider. Requires a
+        // saved API key, so failures are expected and silently ignored here.
+        for (const provider of ['claude', 'codex'] as const) {
+          try {
+            const modelsRes = await api.getModels(provider)
+            if (provider === 'claude') setClaudeModels(modelsRes.models)
+            else setOpenaiModels(modelsRes.models)
+          } catch (err) {
+            console.warn(`Failed to load ${provider} models:`, err)
+          }
+        }
       } catch (err: unknown) {
         console.error('Failed to load settings:', err)
         if (err instanceof Error) setError(err.message)
@@ -101,6 +122,30 @@ export function Settings() {
 
     loadSettings()
   }, [isAuthenticated, user])
+
+  const loadModels = async (provider: 'claude' | 'codex', options?: { silent?: boolean }) => {
+    if (provider === 'claude') setLoadingClaudeModels(true)
+    else setLoadingOpenaiModels(true)
+    try {
+      const res = await api.getModels(provider)
+      if (provider === 'claude') setClaudeModels(res.models)
+      else setOpenaiModels(res.models)
+    } catch (err: unknown) {
+      if (!options?.silent) {
+        showError(err instanceof Error ? err.message : 'Failed to load models')
+      }
+    } finally {
+      if (provider === 'claude') setLoadingClaudeModels(false)
+      else setLoadingOpenaiModels(false)
+    }
+  }
+
+  const buildModelOptions = (models: ModelOption[], current: string): ModelOption[] => {
+    if (current && !models.some((m) => m.id === current)) {
+      return [{ id: current, label: `${current} (current)` }, ...models]
+    }
+    return models
+  }
 
   const handleSave = async () => {
     try {
@@ -189,6 +234,7 @@ export function Settings() {
         await api.updateSettings(updates)
         setSaved(true)
         setTimeout(() => setSaved(false), 3000)
+        success('Configuration saved successfully')
 
         const response = await api.getSettings()
         const settings = response.settings
@@ -202,6 +248,9 @@ export function Settings() {
         setGithubMaxArchiveSizeMb(settings.github_max_archive_size_mb ?? 50)
         setAnthropicApiKey('')
         setOpenaiApiKey('')
+
+        void loadModels('claude', { silent: true })
+        void loadModels('codex', { silent: true })
       } else {
         updateConfig({
           anthropic: { apiKey: anthropicApiKey, baseUrl: anthropicBaseUrl },
@@ -209,10 +258,12 @@ export function Settings() {
         })
         setSaved(true)
         setTimeout(() => setSaved(false), 3000)
+        success('Configuration saved successfully')
       }
     } catch (err: unknown) {
-      if (err instanceof Error) setError(err.message)
-      else setError('Failed to save configuration')
+      const message = err instanceof Error ? err.message : 'Failed to save configuration'
+      setError(message)
+      showError(message)
     }
   }
 
@@ -308,9 +359,12 @@ export function Settings() {
     setAnthropicApiKey(defaultConfig.anthropic.apiKey)
     setAnthropicBaseUrl(defaultConfig.anthropic.baseUrl)
     setTimezone(defaultConfig.timezone)
-    if (user?.role !== 'Admin') updateConfig(defaultConfig)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+    if (user?.role !== 'Admin') {
+      updateConfig(defaultConfig)
+      success('Settings reset to defaults')
+    } else {
+      success('Settings reset to defaults — click Save Configuration to apply')
+    }
   }
 
   if (isAuthenticated && user?.role !== 'Admin') {
@@ -421,147 +475,6 @@ export function Settings() {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold mb-4">LLM Provider</h3>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label htmlFor="llm-provider" className="text-sm font-medium">
-                    Active Provider
-                  </label>
-                  <select
-                    id="llm-provider"
-                    value={llmProvider}
-                    onChange={(e) => setLlmProvider(e.target.value as 'claude' | 'codex')}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  >
-                    <option value="claude">Anthropic Claude</option>
-                    <option value="codex">OpenAI (Codex)</option>
-                  </select>
-                  <p className="text-xs text-muted-foreground">
-                    Controls which model provider is used for threat modeling, chat, and context extraction.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold mb-4">Anthropic API Configuration</h3>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label htmlFor="anthropic-api-key" className="text-sm font-medium">
-                    Anthropic API Key
-                  </label>
-                  <Input
-                    id="anthropic-api-key"
-                    type="password"
-                    value={anthropicApiKey}
-                    onChange={(e) => setAnthropicApiKey(e.target.value)}
-                    placeholder="Enter your Anthropic API key (will be encrypted)"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Encrypted at rest. Leave empty to keep current value.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="anthropic-base-url" className="text-sm font-medium">
-                    Anthropic Base URL
-                  </label>
-                  <Input
-                    id="anthropic-base-url"
-                    type="text"
-                    value={anthropicBaseUrl}
-                    onChange={(e) => setAnthropicBaseUrl(e.target.value)}
-                    placeholder="https://api.anthropic.com"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="claude-model" className="text-sm font-medium">
-                    Claude Model
-                  </label>
-                  <Input
-                    id="claude-model"
-                    type="text"
-                    value={claudeModel}
-                    onChange={(e) => setClaudeModel(e.target.value)}
-                    placeholder="opus (default if empty)"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Examples: opus, sonnet, haiku, claude-sonnet-4-6. Leave empty for the agent default (opus).
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="claude-code-max-output-tokens" className="text-sm font-medium">
-                    Claude Code Max Output Tokens
-                  </label>
-                  <Input
-                    id="claude-code-max-output-tokens"
-                    type="number"
-                    min="1"
-                    max="1000000"
-                    value={claudeCodeMaxOutputTokens ?? ''}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      setClaudeCodeMaxOutputTokens(value === '' ? null : parseInt(value, 10))
-                    }}
-                    placeholder="32000"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold mb-4">OpenAI API Configuration</h3>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label htmlFor="openai-api-key" className="text-sm font-medium">
-                    OpenAI API Key
-                  </label>
-                  <Input
-                    id="openai-api-key"
-                    type="password"
-                    value={openaiApiKey}
-                    onChange={(e) => setOpenaiApiKey(e.target.value)}
-                    placeholder="Enter your OpenAI API key (will be encrypted)"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Used when Active Provider is OpenAI (Codex). Leave empty to keep current value.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="openai-base-url" className="text-sm font-medium">
-                    OpenAI Base URL
-                  </label>
-                  <Input
-                    id="openai-base-url"
-                    type="text"
-                    value={openaiBaseUrl}
-                    onChange={(e) => setOpenaiBaseUrl(e.target.value)}
-                    placeholder="https://api.openai.com/v1"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="openai-model" className="text-sm font-medium">
-                    OpenAI Model
-                  </label>
-                  <Input
-                    id="openai-model"
-                    type="text"
-                    value={openaiModel}
-                    onChange={(e) => setOpenaiModel(e.target.value)}
-                    placeholder="gpt-4.1"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Examples: gpt-4.1, gpt-4.1-mini, o3. Required when using the OpenAI provider.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div>
               <h3 className="text-lg font-semibold mb-4">Display Settings</h3>
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -585,13 +498,184 @@ export function Settings() {
             </div>
           </div>
 
-          <div className="flex gap-2 pt-4">
-            <Button onClick={handleSave} disabled={validating}>
-              {validating ? 'Validating API Key...' : 'Save Configuration'}
-            </Button>
-            <Button variant="outline" onClick={handleReset}>
-              Reset to Defaults
-            </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>LLM Provider</CardTitle>
+          <CardDescription>
+            Controls which model provider is used for threat modeling, chat, and context extraction.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <label htmlFor="llm-provider" className="text-sm font-medium">
+              Active Provider
+            </label>
+            <select
+              id="llm-provider"
+              value={llmProvider}
+              onChange={(e) => setLlmProvider(e.target.value as 'claude' | 'codex')}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <option value="claude">Anthropic Claude</option>
+              <option value="codex">OpenAI (Codex)</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Changes take effect after you click Save Configuration at the bottom of the page.
+            </p>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-semibold mb-4">Anthropic API Configuration</h3>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="anthropic-api-key" className="text-sm font-medium">
+                  Anthropic API Key
+                </label>
+                <Input
+                  id="anthropic-api-key"
+                  type="password"
+                  value={anthropicApiKey}
+                  onChange={(e) => setAnthropicApiKey(e.target.value)}
+                  placeholder="Enter your Anthropic API key (will be encrypted)"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Encrypted at rest. Leave empty to keep current value.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="anthropic-base-url" className="text-sm font-medium">
+                  Anthropic Base URL
+                </label>
+                <Input
+                  id="anthropic-base-url"
+                  type="text"
+                  value={anthropicBaseUrl}
+                  onChange={(e) => setAnthropicBaseUrl(e.target.value)}
+                  placeholder="https://api.anthropic.com"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="claude-model" className="text-sm font-medium">
+                    Claude Model
+                  </label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadModels('claude')}
+                    disabled={loadingClaudeModels}
+                  >
+                    {loadingClaudeModels ? 'Loading...' : 'Refresh list'}
+                  </Button>
+                </div>
+                <select
+                  id="claude-model"
+                  value={claudeModel}
+                  onChange={(e) => setClaudeModel(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="">opus (agent default)</option>
+                  {buildModelOptions(claudeModels, claudeModel).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Loaded from your Anthropic account. Save an API key first, then Refresh. Leave as default for opus.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="claude-code-max-output-tokens" className="text-sm font-medium">
+                  Claude Code Max Output Tokens
+                </label>
+                <Input
+                  id="claude-code-max-output-tokens"
+                  type="number"
+                  min="1"
+                  max="1000000"
+                  value={claudeCodeMaxOutputTokens ?? ''}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setClaudeCodeMaxOutputTokens(value === '' ? null : parseInt(value, 10))
+                  }}
+                  placeholder="32000"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-semibold mb-4">OpenAI API Configuration</h3>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="openai-api-key" className="text-sm font-medium">
+                  OpenAI API Key
+                </label>
+                <Input
+                  id="openai-api-key"
+                  type="password"
+                  value={openaiApiKey}
+                  onChange={(e) => setOpenaiApiKey(e.target.value)}
+                  placeholder="Enter your OpenAI API key (will be encrypted)"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Used when Active Provider is OpenAI (Codex). Leave empty to keep current value.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="openai-base-url" className="text-sm font-medium">
+                  OpenAI Base URL
+                </label>
+                <Input
+                  id="openai-base-url"
+                  type="text"
+                  value={openaiBaseUrl}
+                  onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+                  placeholder="https://api.openai.com/v1"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="openai-model" className="text-sm font-medium">
+                    OpenAI Model
+                  </label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadModels('codex')}
+                    disabled={loadingOpenaiModels}
+                  >
+                    {loadingOpenaiModels ? 'Loading...' : 'Refresh list'}
+                  </Button>
+                </div>
+                <select
+                  id="openai-model"
+                  value={openaiModel}
+                  onChange={(e) => setOpenaiModel(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {buildModelOptions(openaiModels, openaiModel).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Loaded from your OpenAI account. Save an API key first, then Refresh. Required when using the OpenAI provider.
+                </p>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -682,6 +766,15 @@ export function Settings() {
           </div>
         </CardContent>
       </Card>
+
+      <div className="flex gap-2 pt-2">
+        <Button onClick={handleSave} disabled={validating}>
+          {validating ? 'Validating API Key...' : 'Save Configuration'}
+        </Button>
+        <Button variant="outline" onClick={handleReset}>
+          Reset to Defaults
+        </Button>
+      </div>
 
       <ToastContainer toasts={toasts} onClose={removeToast} />
     </div>

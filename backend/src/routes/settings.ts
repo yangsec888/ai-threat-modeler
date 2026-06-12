@@ -84,6 +84,62 @@ async function validateOpenAiApiKey(apiKey: string, baseUrl: string): Promise<{ 
   };
 }
 
+interface ModelOption {
+  id: string;
+  label: string;
+}
+
+async function listAnthropicModels(apiKey: string, baseUrl: string): Promise<ModelOption[]> {
+  const normalizedBase = baseUrl.replace(/\/$/, '');
+  const response = await fetch(`${normalizedBase}/v1/models?limit=1000`, {
+    method: 'GET',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error');
+    throw new Error(`Anthropic models request failed: ${response.status} ${response.statusText}. ${errorText}`);
+  }
+
+  const body = (await response.json()) as { data?: Array<{ id?: string; display_name?: string }> };
+  const data = Array.isArray(body.data) ? body.data : [];
+  return data
+    .filter((m): m is { id: string; display_name?: string } => typeof m.id === 'string' && m.id.length > 0)
+    .map((m) => ({ id: m.id, label: m.display_name || m.id }));
+}
+
+async function listOpenAiModels(apiKey: string, baseUrl: string): Promise<ModelOption[]> {
+  const normalizedBase = baseUrl.replace(/\/$/, '');
+  const response = await fetch(`${normalizedBase}/models`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error');
+    throw new Error(`OpenAI models request failed: ${response.status} ${response.statusText}. ${errorText}`);
+  }
+
+  const body = (await response.json()) as { data?: Array<{ id?: string }> };
+  const data = Array.isArray(body.data) ? body.data : [];
+  const ids = data
+    .map((m) => m.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    .sort((a, b) => a.localeCompare(b));
+
+  // Prefer chat-capable models; fall back to the full list if the filter is empty.
+  const chatModels = ids.filter((id) => /^(gpt-|o1|o3|o4|chatgpt)/i.test(id));
+  const selected = chatModels.length > 0 ? chatModels : ids;
+  return selected.map((id) => ({ id, label: id }));
+}
+
 // GET /api/settings - Get current settings
 router.get('/', authenticateToken, (req: AuthRequest, res: Response) => {
   try {
@@ -299,6 +355,43 @@ router.post('/validate-api-key', authenticateToken, async (req: AuthRequest, res
       error: 'Failed to validate API key', 
       message,
     });
+  }
+});
+
+// GET /api/settings/models - List available models for a provider using stored credentials
+router.get('/models', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userRole = req.userRole;
+
+    if (userRole !== 'Admin') {
+      return res.status(403).json({ error: 'Access denied. Admin role required.' });
+    }
+
+    const settings = SettingsModel.get(true);
+    const requested = typeof req.query.provider === 'string' ? req.query.provider : undefined;
+    const provider: LlmProvider = isValidLlmProvider(requested) ? requested : settings.llm_provider;
+
+    if (provider === 'codex') {
+      if (!settings.openai_api_key || settings.openai_api_key.trim().length === 0) {
+        return res.status(400).json({
+          error: 'OpenAI API key not configured. Save your OpenAI API key first to load models.',
+        });
+      }
+      const models = await listOpenAiModels(settings.openai_api_key, settings.openai_base_url);
+      return res.json({ status: 'success', provider, models });
+    }
+
+    if (!settings.anthropic_api_key || settings.anthropic_api_key.trim().length === 0) {
+      return res.status(400).json({
+        error: 'Anthropic API key not configured. Save your Anthropic API key first to load models.',
+      });
+    }
+    const models = await listAnthropicModels(settings.anthropic_api_key, settings.anthropic_base_url);
+    return res.json({ status: 'success', provider, models });
+  } catch (error: unknown) {
+    logger.error('List models error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error occurred';
+    return res.status(502).json({ error: 'Failed to load models', message });
   }
 });
 

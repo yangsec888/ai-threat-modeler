@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-06-12
+
+### Added
+- **Selectable model dropdowns in admin Settings, backed by a live models endpoint.** The Claude and OpenAI **Model** fields are now dropdowns populated from the provider's own models API instead of free-text inputs, each with a **Refresh list** button. The currently-saved model stays visible even if absent from the fetched list, and Claude keeps an `opus (agent default)` empty option.
+- **`GET /api/settings/models`** (Admin-only) — resolves the active (or `?provider=claude|codex`) provider, then lists models using the stored, decrypted credentials. Anthropic via `GET {base}/v1/models` (mapping `id` + `display_name`); OpenAI via `GET {base}/models`, sorted and filtered to chat-capable models (`gpt-*`, `o1/o3/o4`, `chatgpt*`) with a fallback to the full list. Returns `400` with a clear message when the relevant API key is not yet configured, `502` on upstream failures.
+- **`api.getModels(provider)`** frontend client method.
+
+### Changed
+- **Settings page reorganized into focused cards.** LLM-related configuration (Active Provider, Anthropic, and OpenAI sections) now lives in its own **LLM Provider** card, placed after the main **Settings** card (Encryption + Display Settings).
+- **`Save Configuration` / `Reset to Defaults` moved out of the cards to the bottom of the page**, clarifying that they persist settings across every card.
+- **Save and Reset now surface toast confirmations** ("Configuration saved successfully" / "Settings reset to defaults"), and save failures pop an error toast in addition to the inline message. Reset no longer shows a misleading "saved" banner.
+- **Root, backend, and frontend package versions bumped to `2.0.1`.**
+
 ## [2.0.0] - 2026-06-01
 
 ### Added

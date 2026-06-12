@@ -617,5 +617,24 @@ export const api = {
     
     return response.json();
   },
+
+  getModels: async (provider: 'claude' | 'codex') => {
+    const response = await fetch(`${API_BASE_URL}/settings/models?provider=${provider}`, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      handleAuthError(response);
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+      throw new Error(errorData.error || errorData.message || 'Failed to load models');
+    }
+
+    return response.json() as Promise<{
+      status: string;
+      provider: 'claude' | 'codex';
+      models: Array<{ id: string; label: string }>;
+    }>;
+  },
 };
 
