@@ -377,6 +377,171 @@ describe('Settings Routes', () => {
     });
   });
 
+  describe('GET /api/settings/models', () => {
+    const originalFetch = global.fetch;
+
+    beforeEach(() => {
+      global.fetch = jest.fn();
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    const baseSettings = {
+      encryption_key: 'test-encryption-key-12345678901234567890',
+      encryption_key_configured: true,
+      anthropic_api_key: null as string | null,
+      anthropic_base_url: 'https://api.anthropic.com',
+      openai_api_key: null as string | null,
+      openai_base_url: 'https://api.openai.com/v1',
+      llm_provider: 'claude',
+      claude_model: null,
+      openai_model: 'gpt-4.1',
+      claude_code_max_output_tokens: null,
+      github_max_archive_size_mb: 50,
+      updated_at: '2024-01-01T00:00:00Z',
+    };
+
+    it('lists Anthropic models (id + display_name) using the stored key', async () => {
+      (SettingsModel.get as jest.Mock).mockReturnValue({
+        ...baseSettings,
+        llm_provider: 'claude',
+        anthropic_api_key: 'sk-ant-123',
+      });
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({
+          data: [
+            { id: 'claude-opus-4-20250514', display_name: 'Claude Opus 4' },
+            { id: 'claude-haiku', display_name: undefined },
+          ],
+        }),
+      });
+
+      const response = await request(app).get('/api/settings/models?provider=claude');
+
+      expect(response.status).toBe(200);
+      expect(response.body.provider).toBe('claude');
+      expect(response.body.models).toEqual([
+        { id: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+        { id: 'claude-haiku', label: 'claude-haiku' },
+      ]);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://api.anthropic.com/v1/models?limit=1000',
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'x-api-key': 'sk-ant-123' }),
+        }),
+      );
+    });
+
+    it('lists OpenAI models filtered to chat-capable ids and sorted', async () => {
+      (SettingsModel.get as jest.Mock).mockReturnValue({
+        ...baseSettings,
+        llm_provider: 'codex',
+        openai_api_key: 'sk-oai-123',
+      });
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({
+          data: [
+            { id: 'whisper-1' },
+            { id: 'gpt-4.1-mini' },
+            { id: 'text-embedding-3-large' },
+            { id: 'gpt-4.1' },
+            { id: 'o3' },
+          ],
+        }),
+      });
+
+      const response = await request(app).get('/api/settings/models?provider=codex');
+
+      expect(response.status).toBe(200);
+      expect(response.body.provider).toBe('codex');
+      expect(response.body.models.map((m: { id: string }) => m.id)).toEqual([
+        'gpt-4.1',
+        'gpt-4.1-mini',
+        'o3',
+      ]);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://api.openai.com/v1/models',
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: 'Bearer sk-oai-123' }),
+        }),
+      );
+    });
+
+    it('defaults to the active provider when none is requested', async () => {
+      (SettingsModel.get as jest.Mock).mockReturnValue({
+        ...baseSettings,
+        llm_provider: 'codex',
+        openai_api_key: 'sk-oai-123',
+      });
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ data: [{ id: 'gpt-4.1' }] }),
+      });
+
+      const response = await request(app).get('/api/settings/models');
+
+      expect(response.status).toBe(200);
+      expect(response.body.provider).toBe('codex');
+    });
+
+    it('returns 400 when the requested provider key is not configured', async () => {
+      (SettingsModel.get as jest.Mock).mockReturnValue({
+        ...baseSettings,
+        llm_provider: 'codex',
+        openai_api_key: null,
+      });
+
+      const response = await request(app).get('/api/settings/models?provider=codex');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/OpenAI API key not configured/i);
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('returns 502 when the provider models API fails', async () => {
+      (SettingsModel.get as jest.Mock).mockReturnValue({
+        ...baseSettings,
+        llm_provider: 'claude',
+        anthropic_api_key: 'sk-ant-123',
+      });
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        text: async () => 'upstream boom',
+      });
+
+      const response = await request(app).get('/api/settings/models?provider=claude');
+
+      expect(response.status).toBe(502);
+      expect(response.body.error).toMatch(/Failed to load models/i);
+    });
+
+    it('returns 403 for non-Admin user', async () => {
+      const { authenticateToken } = require('../../middleware/auth');
+      authenticateToken.mockImplementationOnce((req: any, res: any, next: any) => {
+        req.userId = 1;
+        req.userRole = 'Operator';
+        next();
+      });
+
+      const response = await request(app).get('/api/settings/models?provider=claude');
+
+      expect(response.status).toBe(403);
+      expect(response.body.error).toContain('Admin role required');
+    });
+  });
+
   describe('PUT /api/settings - claude_code_max_output_tokens', () => {
     it('should update claude_code_max_output_tokens', async () => {
       (SettingsModel.update as jest.Mock).mockReturnValue({

@@ -196,16 +196,27 @@ interface RepoInfo {
   tags: string[];
 }
 
-async function fetchRepoInfo(owner: string, repo: string, token: string | null): Promise<{ info?: RepoInfo; error?: GitHubError }> {
-  const repoResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, { headers: githubAuthHeaders(token) });
+async function fetchRepoInfo(owner: string, repo: string, token: string | null): Promise<{ info?: RepoInfo; error?: GitHubError; usedToken?: boolean }> {
+  let effectiveToken = token;
+  let repoResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, { headers: githubAuthHeaders(effectiveToken) });
+
+  // A configured PAT that is invalid/expired must not block PUBLIC repo lookups.
+  // GitHub only returns 401 for bad credentials, so drop the token and retry
+  // unauthenticated: public repos still resolve, while private repos then surface
+  // as a 404 ("not found or private") via mapGitHubError below.
+  if (repoResponse.status === 401 && effectiveToken) {
+    effectiveToken = null;
+    repoResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, { headers: githubAuthHeaders(null) });
+  }
+
   const repoErr = mapGitHubError(repoResponse, 'Repository');
   if (repoErr) return { error: repoErr };
   const repoData = await repoResponse.json() as { default_branch: string; private: boolean; description: string | null };
 
   // GitHub returns up to 30 by default; per_page caps at 100. For v1 we cap at 100.
   const [branchesRes, tagsRes] = await Promise.all([
-    fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}/branches?per_page=100`, { headers: githubAuthHeaders(token) }),
-    fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}/tags?per_page=100`, { headers: githubAuthHeaders(token) }),
+    fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}/branches?per_page=100`, { headers: githubAuthHeaders(effectiveToken) }),
+    fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}/tags?per_page=100`, { headers: githubAuthHeaders(effectiveToken) }),
   ]);
 
   const branchesData = branchesRes.ok ? await branchesRes.json() as Array<{ name: string }> : [];
@@ -222,6 +233,7 @@ async function fetchRepoInfo(owner: string, repo: string, token: string | null):
       branches: branchesData.map(b => b.name),
       tags: tagsData.map(t => t.name),
     },
+    usedToken: !!effectiveToken,
   };
 }
 
@@ -242,11 +254,11 @@ router.post('/check-repo', authenticateToken, async (req: AuthRequest, res: Resp
     } catch (err) {
       logger.warn('check-repo: failed to load PAT, continuing unauthenticated', { error: err });
     }
-    const { info, error } = await fetchRepoInfo(parsed.owner, parsed.repo, token);
+    const { info, error, usedToken } = await fetchRepoInfo(parsed.owner, parsed.repo, token);
     if (error) {
       return res.status(error.status).json({ error: error.message });
     }
-    res.json({ status: 'success', repoInfo: info, hasToken: !!token });
+    res.json({ status: 'success', repoInfo: info, hasToken: !!usedToken });
   } catch (error: unknown) {
     logger.error('check-repo error', { error });
     const message = error instanceof Error ? error.message : 'Unknown error';

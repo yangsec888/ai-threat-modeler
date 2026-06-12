@@ -29,6 +29,15 @@ async function stubAuthAndSettings(page: Page): Promise<void> {
     }
     await route.continue()
   })
+  // Settings page loads model dropdowns on mount (v2.0.1); stub so these
+  // requests don't fall through to the network during PAT-focused tests.
+  await page.route('**/api/settings/models**', async (route) => {
+    const provider = route.request().url().includes('provider=codex') ? 'codex' : 'claude'
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ status: 'success', provider, models: [] }),
+    })
+  })
 }
 
 test.beforeEach(async ({ page }) => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Github, Loader2, Search, GitBranch, Tag, GitCommit, Lock, Globe, KeyRound } from 'lucide-react'
@@ -47,12 +47,27 @@ export function GitHubImport({ onImportStarted, onError, onInfo, onTokenNeeded }
   const [commitSha, setCommitSha] = useState('')
   const [tokenStatus, setTokenStatus] = useState<GitHubTokenStatus | null>(null)
   const [running, setRunning] = useState(false)
+  const failureToastedRef = useRef(false)
 
   useEffect(() => {
     api.getGitHubTokenStatus()
       .then((res) => setTokenStatus(res.token ?? null))
       .catch(() => setTokenStatus(null))
   }, [])
+
+  // Surface staging failures (e.g. archive too large, extractor error) as a toast
+  // so the specific, actionable reason is not buried in the inline fallback banner.
+  // The ref guard fires the toast once per failure (onError is an unstable inline prop).
+  useEffect(() => {
+    if (staging.status === 'failed') {
+      if (!failureToastedRef.current) {
+        failureToastedRef.current = true
+        onError(staging.error ?? 'Context extraction failed')
+      }
+    } else {
+      failureToastedRef.current = false
+    }
+  }, [staging.status, staging.error, onError])
 
   const handleCheckRepo = async () => {
     if (!repoUrl.trim()) {
@@ -198,6 +213,7 @@ export function GitHubImport({ onImportStarted, onError, onInfo, onTokenNeeded }
                 ? 'failed'
                 : 'ready'
           }
+          error={staging.error}
           onChange={staging.setField}
           disabled={running}
         />

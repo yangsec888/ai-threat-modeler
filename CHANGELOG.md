@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-06-12
+
+### Fixed
+- **Context extraction failures now surface the real reason.** When staging extraction fails, the inline fallback banner shows the specific backend error (e.g. the size-cap message) instead of the generic "Couldn't auto-generate context", and both the Upload and GitHub import flows pop an error toast. A `useRef` guard in `GitHubImport` keeps the toast from firing repeatedly across re-renders.
+- **Public GitHub repo lookups no longer require a valid PAT.** `fetchRepoInfo` now retries the request unauthenticated when a configured token returns `401`, so public repositories resolve even with an invalid/expired PAT. The `hasToken` flag in the response reflects whether a *working* token was actually used.
+
+### Added
+- **Test coverage for the 2.0.1 release and the fixes above.**
+  - **Backend** — `GET /api/settings/models` route tests (Anthropic + OpenAI listing, default-provider resolution, `400` unconfigured key, `502` upstream failure, `403` non-admin); GitHub `check-repo` 401-fallback tests for public and private repos.
+  - **Frontend (Jest)** — `Settings` model-dropdown population, refresh, save (sends `claude_model`) + toast, and reset toast; `api.getModels` client tests; `ContextFieldsForm` specific-error banner tests; `GitHubImport` failure-toast test.
+  - **Frontend (Playwright)** — `e2e/settings-models.spec.ts`: dropdowns populate from the models endpoint, save shows the success toast and persists the selected model, reset shows its toast. `staging-failure.spec.ts` asserts the specific extractor error in the banner.
+- **Root, backend, and frontend package versions bumped to `2.0.2`.**
+
 ## [2.0.1] - 2026-06-12
 
 ### Added

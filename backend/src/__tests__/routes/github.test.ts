@@ -251,6 +251,54 @@ describe('GitHub Routes', () => {
       expect(r.body.error).toMatch(/not found|private/i);
     });
 
+    it('falls back to an unauthenticated lookup for a public repo when the configured PAT is invalid', async () => {
+      (GitHubTokenModel.getDecrypted as jest.Mock).mockReturnValue('ghp_invalid');
+      const fetchMock = jest.fn()
+        // repo fetch with the bad token → 401
+        .mockResolvedValueOnce({ ok: false, status: 401, headers: new Map(), json: async () => ({}) })
+        // retry without the token → 200 (public repo)
+        .mockResolvedValueOnce({
+          ok: true, status: 200, headers: new Map(),
+          json: async () => ({ default_branch: 'main', private: false, description: 'desc' }),
+        })
+        // branches + tags (unauthenticated)
+        .mockResolvedValueOnce({ ok: true, status: 200, headers: new Map(), json: async () => [{ name: 'main' }] })
+        .mockResolvedValueOnce({ ok: true, status: 200, headers: new Map(), json: async () => [] });
+      global.fetch = fetchMock as any;
+
+      const r = await request(app)
+        .post('/api/github/check-repo')
+        .send({ repoUrl: 'https://github.com/octocat/Hello-World' });
+
+      expect(r.status).toBe(200);
+      expect(r.body.repoInfo.owner).toBe('octocat');
+      expect(r.body.repoInfo.isPrivate).toBe(false);
+      // Token was dropped, so the client is told no working token was used.
+      expect(r.body.hasToken).toBe(false);
+      // First attempt sent the PAT; the retry omitted Authorization.
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect((fetchMock.mock.calls[0][1].headers as Record<string, string>).Authorization).toBe('Bearer ghp_invalid');
+      expect((fetchMock.mock.calls[1][1].headers as Record<string, string>).Authorization).toBeUndefined();
+    });
+
+    it('does not expose a private repo when the configured PAT is invalid', async () => {
+      (GitHubTokenModel.getDecrypted as jest.Mock).mockReturnValue('ghp_invalid');
+      const fetchMock = jest.fn()
+        // repo fetch with the bad token → 401
+        .mockResolvedValueOnce({ ok: false, status: 401, headers: new Map(), json: async () => ({}) })
+        // retry without the token → 404 (private repo is invisible unauthenticated)
+        .mockResolvedValueOnce({ ok: false, status: 404, headers: new Map(), json: async () => ({}) });
+      global.fetch = fetchMock as any;
+
+      const r = await request(app)
+        .post('/api/github/check-repo')
+        .send({ repoUrl: 'https://github.com/octocat/secret' });
+
+      expect(r.status).toBe(404);
+      expect(r.body.error).toMatch(/not found|private/i);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
     it('maps rate limit to 429', async () => {
       (GitHubTokenModel.getDecrypted as jest.Mock).mockReturnValue(null);
       const headers = new Map<string, string>([

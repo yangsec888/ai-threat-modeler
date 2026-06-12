@@ -403,5 +403,61 @@ describe('API Client', () => {
       await expect(api.getChatSession()).rejects.toThrow('Failed to get session status')
     })
   })
+
+  describe('getModels', () => {
+    it('should request models for the given provider with auth headers', async () => {
+      localStorageMock.getItem.mockReturnValue('test-token')
+      const mockResponse = {
+        status: 'success',
+        provider: 'claude',
+        models: [{ id: 'claude-opus-4', label: 'Claude Opus 4' }],
+      }
+
+      ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      })
+
+      const result = await api.getModels('claude')
+
+      expect(result).toEqual(mockResponse)
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/settings/models?provider=claude'),
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer test-token',
+            'Content-Type': 'application/json',
+          }),
+        })
+      )
+    })
+
+    it('should pass the codex provider in the query string', async () => {
+      localStorageMock.getItem.mockReturnValue('test-token')
+      ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'success', provider: 'codex', models: [] }),
+      })
+
+      await api.getModels('codex')
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/settings/models?provider=codex'),
+        expect.objectContaining({ method: 'GET' })
+      )
+    })
+
+    it('should throw the backend error message on failure', async () => {
+      localStorageMock.getItem.mockReturnValue('test-token')
+      ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({ error: 'OpenAI API key not configured.' }),
+      })
+
+      await expect(api.getModels('codex')).rejects.toThrow('OpenAI API key not configured.')
+    })
+  })
 })
 

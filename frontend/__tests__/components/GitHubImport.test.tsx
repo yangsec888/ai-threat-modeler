@@ -122,6 +122,49 @@ describe('<GitHubImport />', () => {
     expect(screen.getByText(/Default branch:/)).toBeInTheDocument()
   })
 
+  it('surfaces the specific extraction error as a toast and inline banner on failure', async () => {
+    ;(api.checkGitHubRepo as jest.Mock).mockResolvedValue({
+      repoInfo: {
+        owner: 'octocat',
+        repo: 'Hello-World',
+        normalizedUrl: 'https://github.com/octocat/Hello-World',
+        defaultBranch: 'main',
+        isPrivate: false,
+        description: null,
+        branches: ['main'],
+        tags: [],
+      },
+      hasToken: false,
+    })
+    const sizeCapError =
+      'Repository archive exceeds the configured size cap (50 MB). Raise the cap in Settings → GitHub → Max archive size (MB) and re-import.'
+    ;(api.getThreatModelingStage as jest.Mock).mockResolvedValue({
+      stagingId: 'stg-1',
+      status: 'failed',
+      draftContextFields: null,
+      extractionError: sizeCapError,
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+    })
+
+    render(<GitHubImport onImportStarted={onImportStarted} onError={onError} onInfo={onInfo} />)
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/octocat/Hello-World' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Look up/i }))
+    await waitFor(() => screen.getByRole('button', { name: /Analyze repository/i }))
+
+    fireEvent.click(screen.getByRole('button', { name: /Analyze repository/i }))
+
+    // Toast carries the specific, actionable reason (fired once via the ref guard).
+    await waitFor(() => expect(onError).toHaveBeenCalledWith(sizeCapError))
+    expect(onError).toHaveBeenCalledTimes(1)
+
+    // Inline banner shows the same reason plus the manual-fallback guidance.
+    const banner = await screen.findByTestId('context-extraction-error')
+    expect(banner).toHaveTextContent(sizeCapError)
+    expect(banner).toHaveTextContent(/Fill in any combination of fields below/i)
+  })
+
   it('runs staging flow and calls onImportStarted after Run', async () => {
     jest.useFakeTimers()
     ;(api.checkGitHubRepo as jest.Mock).mockResolvedValue({

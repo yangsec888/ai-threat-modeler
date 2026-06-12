@@ -36,6 +36,14 @@ export function ThreatModeling() {
   const { toasts, success, error: showError, info, removeToast } = useToast()
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Surface staging failures (e.g. archive too large, extractor error) as a toast
+  // so the specific, actionable reason is not buried in the inline fallback banner.
+  useEffect(() => {
+    if (uploadStaging.status === 'failed') {
+      showError(uploadStaging.error ?? 'Context extraction failed')
+    }
+  }, [uploadStaging.status, uploadStaging.error, showError])
+
   // Load jobs on mount
   useEffect(() => {
     loadJobs()
@@ -403,6 +411,7 @@ export function ThreatModeling() {
                             ? 'failed'
                             : 'ready'
                     }
+                    error={uploadStaging.error}
                     onChange={uploadStaging.setField}
                     disabled={uploadStaging.status === 'running'}
                   />
