@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.3] - 2026-08-18
+
+### Fixed
+
+- **Moonshot `kimi-k3` jobs now report estimated cost.** `appsec-agent` 3.8.2 reads streaming token usage from both the OpenAI-compatible top-level `chunk.usage` (`kimi-k2.6`) and Kimi-native `choices[0].usage` (`kimi-k3`, where top-level usage is null). Previously K3 runs completed with `api_cost` empty even though Moonshot billed the tokens.
+- **Adversarial second pass no longer silently skipped.** Since `appsec-agent` 3.8.0, `-o` must be a path relative to the agent's cwd. The threat-modeler was passing an absolute path, so every job since v2.3.0 fell back to the first-pass report. The CLI now receives the bare filename `threat_model_adversary_report.json`.
+
+### Changed
+
+- **Bumped `appsec-agent` to `^3.8.2`** (from `^3.8.1`) in the root and backend packages.
+- **Root, backend, and frontend package versions bumped to `2.3.3`.**
+
 ## [2.3.2] - 2026-08-17
 
 ### Changed

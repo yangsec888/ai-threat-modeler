@@ -723,7 +723,11 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
 
     if (SettingsModel.getThreatAdversaryEnabled()) {
       checkCancellation();
-      const adversaryOutputPath = path.join(workDir, 'threat_model_adversary_report.json');
+      // appsec-agent rejects absolute -o paths (validateOutputFilePath requires a
+      // path relative to the agent's cwd). runAgentCli spawns with cwd=workDir, so
+      // pass a bare filename and resolve the absolute path locally for reading.
+      const adversaryOutputName = 'threat_model_adversary_report.json';
+      const adversaryOutputPath = path.join(workDir, adversaryOutputName);
       logger.info(`🔍 Running threat adversary second pass (input: ${reportJsonPath})`);
 
       try {
@@ -740,7 +744,7 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
             '--adversarial-context',
             reportJsonPath,
             '-o',
-            adversaryOutputPath,
+            adversaryOutputName,
           ],
         });
         capturedOutput += advRun.capturedOutput;
