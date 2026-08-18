@@ -16,11 +16,26 @@ import { buildExtractionContext } from './extractionContextBuilder';
 import { ThreatModelingStagingModel } from '../models/threatModelingStaging';
 import { mapExtractorResultToDraft } from '../types/contextFields';
 import { awaitAgentChildExit } from '../utils/awaitAgentChildExit';
-import { buildAgentRunInvocation, CONTEXT_EXTRACTOR_MODEL } from './agentInvocation';
+import {
+  buildAgentRunInvocation,
+  CONTEXT_EXTRACTOR_MODEL,
+  CONTEXT_EXTRACTOR_TIMEOUT_MS,
+} from './agentInvocation';
 import type { AgentProviderConfig } from '../models/settings';
 import logger from '../utils/logger';
 
-const EXTRACTOR_TIMEOUT_MS = 120_000;
+/**
+ * Resolve the wall-clock budget for a context_extractor run. A positive
+ * `CONTEXT_EXTRACTOR_TIMEOUT_MS` env value overrides the per-provider default
+ * (e.g. to grant a slow self-hosted endpoint more headroom).
+ */
+function resolveExtractorTimeoutMs(provider: AgentProviderConfig['provider']): number {
+  const override = Number(process.env.CONTEXT_EXTRACTOR_TIMEOUT_MS);
+  if (Number.isFinite(override) && override > 0) {
+    return override;
+  }
+  return CONTEXT_EXTRACTOR_TIMEOUT_MS[provider];
+}
 
 export async function runContextExtractor(
   stagingId: string,
@@ -90,6 +105,7 @@ export async function runContextExtractor(
       });
     }
 
+    const timeoutMs = resolveExtractorTimeoutMs(providerConfig.provider);
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
         try {
@@ -97,8 +113,15 @@ export async function runContextExtractor(
         } catch {
           /* ignore */
         }
-        reject(new Error('Context extractor timed out after 120s'));
-      }, EXTRACTOR_TIMEOUT_MS);
+        const seconds = Math.round(timeoutMs / 1000);
+        const stderrTail = stderr.trim().slice(-500);
+        reject(
+          new Error(
+            `Context extractor (${providerConfig.provider}) timed out after ${seconds}s` +
+              (stderrTail ? `. stderr: ${stderrTail}` : ''),
+          ),
+        );
+      }, timeoutMs);
     });
 
     const exitPromise = awaitAgentChildExit(child, stagingId, { graceMs: 5_000 });

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-08-17
+
+### Fixed
+
+- **Moonshot context extraction no longer times out prematurely.** The context extractor's wall-clock budget is now provider-aware: Claude (`haiku`) and Codex (`gpt-4.1-mini`) keep the 120s budget, but Moonshot — which routes to the flagship `kimi-k2.6` (no fast "mini" tier) — gets 300s so a healthy run on a large (up to 5 MB) extraction prompt is not killed with `SIGTERM` mid-flight. The budget is overridable via the `CONTEXT_EXTRACTOR_TIMEOUT_MS` env var, and timeout errors now include the captured `stderr` tail to distinguish genuine latency from a stalled connection.
+
+### Changed
+
+- **Root, backend, and frontend package versions bumped to `2.3.1`.**
+
 ## [2.3.0] - 2026-08-17
 
 ### Added

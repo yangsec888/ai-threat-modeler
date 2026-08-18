@@ -18,6 +18,22 @@ export const CONTEXT_EXTRACTOR_MODEL: Record<AgentProviderConfig['provider'], st
   moonshot: 'kimi-k2.6',
 };
 
+/**
+ * Per-provider wall-clock budget for the tool-less context_extractor call.
+ *
+ * Claude (`haiku`) and Codex (`gpt-4.1-mini`) are fast, cheap models that finish
+ * the transform well under two minutes. Moonshot has no comparable "mini" tier,
+ * so we route to the flagship `kimi-k2.6`, whose latency on a large (up to 5 MB)
+ * extraction prompt regularly exceeds 120s; give it a wider budget so a healthy
+ * run is not killed mid-flight. Overridable globally via
+ * `CONTEXT_EXTRACTOR_TIMEOUT_MS`.
+ */
+export const CONTEXT_EXTRACTOR_TIMEOUT_MS: Record<AgentProviderConfig['provider'], number> = {
+  claude: 120_000,
+  codex: 120_000,
+  moonshot: 300_000,
+};
+
 export function buildAgentRunInvocation(
   config: AgentProviderConfig,
   roleArgs: string[],
