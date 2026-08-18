@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-08-17
+
+### Added
+
+- **Moonshot (Kimi) LLM provider.** A third provider alongside Claude and OpenAI (Codex). Select **Moonshot (Kimi)** in **Settings → LLM Provider**, paste a Moonshot API key, set an optional base URL (default `https://api.moonshot.ai/v1`), and pick a Kimi model (default `kimi-k2.6`). The key is encrypted at rest and re-encrypted on encryption-key rotation like the other providers. Threat modeling, chat, and context extraction all route through the new provider.
+- **Backend plumbing.** `LlmProvider` gains `moonshot`; new `moonshot_api_key` / `moonshot_base_url` / `moonshot_model` settings columns (with idempotent migrations); `agent-run` invocation passes `--provider moonshot` with `MOONSHOT_API_KEY` / `MOONSHOT_BASE_URL`; provider handling in `buildAgentRunInvocation` and the validate/validate-api-key handlers is now exhaustively typed. Moonshot uses its OpenAI-compatible API for key validation and model listing (Kimi/Moonshot-filtered).
+- **OpenAPI spec refreshed.** The `/api/settings` schema and `PUT` body now document all three providers (previously only Anthropic), the `provider` field on `validate-api-key`, and the previously-undocumented `GET /api/settings/models` endpoint. `encryption_key` is no longer advertised as settable.
+- **Tests.** Backend unit coverage for Moonshot argv/env, settings persistence, `getAgentProviderConfig`, provider normalization, and models/validate routes; frontend Jest coverage for the Moonshot Settings section and API client; Playwright e2e for switching to Moonshot and validating its key.
+
+### Changed
+
+- **Bumped `appsec-agent` to `^3.8.0`** (from `^3.2.3`) in the root and backend packages, which introduces the Moonshot provider and bundles the `openai` SDK. Note: Moonshot per-job cost shown in the dashboard is an **estimate** from a static rate table, not billed cost.
+- **Root, backend, and frontend package versions bumped to `2.3.0`.**
+
 ## [2.2.0] - 2026-07-06
 
 ### Added

@@ -448,6 +448,21 @@ describe('API Client', () => {
       )
     })
 
+    it('should pass the moonshot provider in the query string', async () => {
+      localStorageMock.getItem.mockReturnValue('test-token')
+      ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'success', provider: 'moonshot', models: [] }),
+      })
+
+      await api.getModels('moonshot')
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/settings/models?provider=moonshot'),
+        expect.objectContaining({ method: 'GET' })
+      )
+    })
+
     it('should throw the backend error message on failure', async () => {
       localStorageMock.getItem.mockReturnValue('test-token')
       ;(global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -457,6 +472,60 @@ describe('API Client', () => {
       })
 
       await expect(api.getModels('codex')).rejects.toThrow('OpenAI API key not configured.')
+    })
+  })
+
+  describe('validateApiKey', () => {
+    it('sends the moonshot provider and base url in the body', async () => {
+      localStorageMock.getItem.mockReturnValue('test-token')
+      ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ valid: true, message: 'ok' }),
+      })
+
+      await api.validateApiKey('sk-moonshot-123', 'https://api.moonshot.ai/v1', 'moonshot')
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/settings/validate-api-key'),
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            api_key: 'sk-moonshot-123',
+            base_url: 'https://api.moonshot.ai/v1',
+            provider: 'moonshot',
+          }),
+        })
+      )
+    })
+  })
+
+  describe('updateSettings', () => {
+    it('forwards moonshot provider fields to the settings endpoint', async () => {
+      localStorageMock.getItem.mockReturnValue('test-token')
+      ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'success' }),
+      })
+
+      await api.updateSettings({
+        llm_provider: 'moonshot',
+        moonshot_api_key: 'sk-moonshot-123',
+        moonshot_base_url: 'https://api.moonshot.ai/v1',
+        moonshot_model: 'kimi-k3',
+      })
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/settings'),
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({
+            llm_provider: 'moonshot',
+            moonshot_api_key: 'sk-moonshot-123',
+            moonshot_base_url: 'https://api.moonshot.ai/v1',
+            moonshot_model: 'kimi-k3',
+          }),
+        })
+      )
     })
   })
 })

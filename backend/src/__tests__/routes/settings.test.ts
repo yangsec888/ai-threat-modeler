@@ -226,6 +226,47 @@ describe('Settings Routes', () => {
       expect(response.body.error).toContain('non-empty string');
     });
 
+    it('should update Moonshot provider settings', async () => {
+      (SettingsModel.update as jest.Mock).mockReturnValue({
+        encryption_key: 'test-encryption-key-12345678901234567890',
+        encryption_key_configured: true,
+        anthropic_api_key: null,
+        anthropic_base_url: 'https://api.anthropic.com',
+        moonshot_api_key: '***ENCRYPTED***',
+        moonshot_base_url: 'https://api.moonshot.ai/v1',
+        llm_provider: 'moonshot',
+        moonshot_model: 'kimi-k3',
+        claude_code_max_output_tokens: null,
+        github_max_archive_size_mb: 50,
+        updated_at: '2024-01-02T00:00:00Z',
+      });
+
+      const response = await request(app)
+        .put('/api/settings')
+        .send({
+          llm_provider: 'moonshot',
+          moonshot_api_key: 'sk-moonshot-123',
+          moonshot_model: 'kimi-k3',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('success');
+      expect(SettingsModel.update).toHaveBeenCalledWith(expect.objectContaining({
+        llm_provider: 'moonshot',
+        moonshot_api_key: 'sk-moonshot-123',
+        moonshot_model: 'kimi-k3',
+      }));
+    });
+
+    it('should reject an unknown llm_provider', async () => {
+      const response = await request(app)
+        .put('/api/settings')
+        .send({ llm_provider: 'gemini' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/llm_provider must be/i);
+    });
+
     it('should accept github_max_archive_size_mb in valid range', async () => {
       (SettingsModel.update as jest.Mock).mockReturnValue({
         encryption_key: 'test-encryption-key-12345678901234567890',
@@ -343,6 +384,31 @@ describe('Settings Routes', () => {
       );
     });
 
+    it('validates a Moonshot key against its OpenAI-compatible /models endpoint', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+      });
+
+      const response = await request(app)
+        .post('/api/settings/validate-api-key')
+        .send({
+          api_key: 'sk-moonshot-123',
+          provider: 'moonshot',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.valid).toBe(true);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://api.moonshot.ai/v1/models',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({ Authorization: 'Bearer sk-moonshot-123' }),
+        }),
+      );
+    });
+
     it('should reject invalid API key', async () => {
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: false,
@@ -423,9 +489,12 @@ describe('Settings Routes', () => {
       anthropic_base_url: 'https://api.anthropic.com',
       openai_api_key: null as string | null,
       openai_base_url: 'https://api.openai.com/v1',
+      moonshot_api_key: null as string | null,
+      moonshot_base_url: 'https://api.moonshot.ai/v1',
       llm_provider: 'claude',
       claude_model: null,
       openai_model: 'gpt-4.1',
+      moonshot_model: 'kimi-k2.6',
       claude_code_max_output_tokens: null,
       github_max_archive_size_mb: 50,
       threat_modeler_max_turns: 100,
@@ -503,6 +572,57 @@ describe('Settings Routes', () => {
           headers: expect.objectContaining({ Authorization: 'Bearer sk-oai-123' }),
         }),
       );
+    });
+
+    it('lists Moonshot models filtered to kimi/moonshot ids and sorted', async () => {
+      (SettingsModel.get as jest.Mock).mockReturnValue({
+        ...baseSettings,
+        llm_provider: 'moonshot',
+        moonshot_api_key: 'sk-moonshot-123',
+      });
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({
+          data: [
+            { id: 'kimi-k3' },
+            { id: 'text-embedding-3' },
+            { id: 'kimi-k2.6' },
+            { id: 'moonshot-v1-8k' },
+          ],
+        }),
+      });
+
+      const response = await request(app).get('/api/settings/models?provider=moonshot');
+
+      expect(response.status).toBe(200);
+      expect(response.body.provider).toBe('moonshot');
+      expect(response.body.models.map((m: { id: string }) => m.id)).toEqual([
+        'kimi-k2.6',
+        'kimi-k3',
+        'moonshot-v1-8k',
+      ]);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://api.moonshot.ai/v1/models',
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: 'Bearer sk-moonshot-123' }),
+        }),
+      );
+    });
+
+    it('returns 400 when the Moonshot key is not configured', async () => {
+      (SettingsModel.get as jest.Mock).mockReturnValue({
+        ...baseSettings,
+        llm_provider: 'moonshot',
+        moonshot_api_key: null,
+      });
+
+      const response = await request(app).get('/api/settings/models?provider=moonshot');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/Moonshot API key not configured/i);
+      expect(global.fetch).not.toHaveBeenCalled();
     });
 
     it('defaults to the active provider when none is requested', async () => {

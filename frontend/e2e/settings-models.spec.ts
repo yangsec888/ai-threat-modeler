@@ -15,10 +15,18 @@ const openaiModels = [
   { id: 'gpt-4.1', label: 'gpt-4.1' },
   { id: 'o3', label: 'o3' },
 ]
+const kimiModels = [
+  { id: 'kimi-k2.6', label: 'kimi-k2.6' },
+  { id: 'kimi-k3', label: 'kimi-k3' },
+]
 
 async function stubSettingsPage(
   page: Page,
-  opts: { openaiApiKey?: string | null; llmProvider?: 'claude' | 'codex' } = {},
+  opts: {
+    openaiApiKey?: string | null
+    moonshotApiKey?: string | null
+    llmProvider?: 'claude' | 'codex' | 'moonshot'
+  } = {},
 ): Promise<{ getLastPut: () => Record<string, unknown> | null }> {
   let lastPutBody: Record<string, unknown> | null = null
 
@@ -50,9 +58,12 @@ async function stubSettingsPage(
     anthropic_base_url: 'https://api.anthropic.com',
     openai_api_key: opts.openaiApiKey ?? null,
     openai_base_url: 'https://api.openai.com/v1',
+    moonshot_api_key: opts.moonshotApiKey ?? null,
+    moonshot_base_url: 'https://api.moonshot.ai/v1',
     llm_provider: opts.llmProvider ?? 'claude',
     claude_model: null as string | null,
     openai_model: 'gpt-4.1',
+    moonshot_model: 'kimi-k2.6',
     claude_code_max_output_tokens: 32000,
     github_max_archive_size_mb: 50,
     threat_modeler_max_turns: 100,
@@ -87,14 +98,19 @@ async function stubSettingsPage(
 
   await page.route('**/api/settings/models**', async (route) => {
     const url = route.request().url()
-    const provider = url.includes('provider=codex') ? 'codex' : 'claude'
+    const provider = url.includes('provider=codex')
+      ? 'codex'
+      : url.includes('provider=moonshot')
+        ? 'moonshot'
+        : 'claude'
+    const modelsByProvider = { claude: claudeModels, codex: openaiModels, moonshot: kimiModels }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         status: 'success',
         provider,
-        models: provider === 'codex' ? openaiModels : claudeModels,
+        models: modelsByProvider[provider as 'claude' | 'codex' | 'moonshot'],
       }),
     })
   })
@@ -171,6 +187,31 @@ test.describe('Settings — LLM Provider model selection (v2.0.1)', () => {
     await page.getByRole('button', { name: 'Settings' }).click()
 
     await expect(page.getByTestId('openai-key-status-missing')).toBeVisible()
+  })
+
+  test('switching to Moonshot reveals its section and populates the Kimi model dropdown', async ({ page }) => {
+    await stubSettingsPage(page)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Settings' }).click()
+
+    await expect(page.locator('#claude-model')).toBeVisible()
+
+    await page.locator('#llm-provider').selectOption('moonshot')
+
+    const moonshotSelect = page.locator('#moonshot-model')
+    await expect(moonshotSelect).toContainText('kimi-k3')
+    await expect(page.locator('#claude-model')).toHaveCount(0)
+    await expect(page.locator('#openai-model')).toHaveCount(0)
+  })
+
+  test('Moonshot API Key shows its configured status and Test validates the saved key', async ({ page }) => {
+    await stubSettingsPage(page, { moonshotApiKey: '***ENCRYPTED***', llmProvider: 'moonshot' })
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Settings' }).click()
+
+    await expect(page.getByTestId('moonshot-key-status-configured')).toBeVisible()
+    await page.getByRole('button', { name: 'Test Moonshot API key' }).click()
+    await expect(page.getByText(/Saved Moonshot API key is valid/i)).toBeVisible()
   })
 
   test('Reset to Defaults shows a confirmation toast', async ({ page }) => {

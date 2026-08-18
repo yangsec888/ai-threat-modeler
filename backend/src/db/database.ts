@@ -296,6 +296,18 @@ try {
     db.exec(`ALTER TABLE settings ADD COLUMN openai_model TEXT DEFAULT 'gpt-4.1'`);
     logger.info('✅ Added openai_model column to settings table');
   }
+  if (!columnNames.includes('moonshot_api_key')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN moonshot_api_key TEXT`);
+    logger.info('✅ Added moonshot_api_key column to settings table');
+  }
+  if (!columnNames.includes('moonshot_base_url')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN moonshot_base_url TEXT DEFAULT 'https://api.moonshot.ai/v1'`);
+    logger.info('✅ Added moonshot_base_url column to settings table');
+  }
+  if (!columnNames.includes('moonshot_model')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN moonshot_model TEXT DEFAULT 'kimi-k2.6'`);
+    logger.info('✅ Added moonshot_model column to settings table');
+  }
   if (!columnNames.includes('threat_modeler_max_turns')) {
     db.exec(`ALTER TABLE settings ADD COLUMN threat_modeler_max_turns INTEGER DEFAULT 100`);
     logger.info('✅ Added threat_modeler_max_turns column to settings table');
@@ -439,7 +451,7 @@ export interface ThreatModelingJob {
   completed_at: string | null;
 }
 
-export type LlmProvider = 'claude' | 'codex';
+export type LlmProvider = 'claude' | 'codex' | 'moonshot';
 
 export interface Settings {
   id: number;
@@ -455,6 +467,9 @@ export interface Settings {
   openai_base_url: string | null;
   claude_model: string | null;
   openai_model: string | null;
+  moonshot_api_key: string | null;
+  moonshot_base_url: string | null;
+  moonshot_model: string | null;
   threat_modeler_max_turns: number | null;
   threat_adversary_enabled: number | null;
   created_at: string;

@@ -31,11 +31,16 @@ interface ModelOption {
   label: string
 }
 
+type LlmProvider = 'claude' | 'codex' | 'moonshot'
+
+const normalizeProvider = (raw: unknown): LlmProvider =>
+  raw === 'codex' || raw === 'moonshot' ? raw : 'claude'
+
 export function Settings() {
   const { user, isAuthenticated } = useAuth()
   const { toasts, success, error: showError, removeToast } = useToast()
   const [encryptionKeyConfigured, setEncryptionKeyConfigured] = useState(false)
-  const [llmProvider, setLlmProvider] = useState<'claude' | 'codex'>('claude')
+  const [llmProvider, setLlmProvider] = useState<LlmProvider>('claude')
   const [anthropicApiKey, setAnthropicApiKey] = useState('')
   const [anthropicKeyConfigured, setAnthropicKeyConfigured] = useState(false)
   const [testingAnthropicKey, setTestingAnthropicKey] = useState(false)
@@ -44,12 +49,19 @@ export function Settings() {
   const [openaiKeyConfigured, setOpenaiKeyConfigured] = useState(false)
   const [testingOpenaiKey, setTestingOpenaiKey] = useState(false)
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState('https://api.openai.com/v1')
+  const [moonshotApiKey, setMoonshotApiKey] = useState('')
+  const [moonshotKeyConfigured, setMoonshotKeyConfigured] = useState(false)
+  const [testingMoonshotKey, setTestingMoonshotKey] = useState(false)
+  const [moonshotBaseUrl, setMoonshotBaseUrl] = useState('https://api.moonshot.ai/v1')
   const [claudeModel, setClaudeModel] = useState('')
   const [openaiModel, setOpenaiModel] = useState('gpt-4.1')
+  const [moonshotModel, setMoonshotModel] = useState('kimi-k2.6')
   const [claudeModels, setClaudeModels] = useState<ModelOption[]>([])
   const [openaiModels, setOpenaiModels] = useState<ModelOption[]>([])
+  const [moonshotModels, setMoonshotModels] = useState<ModelOption[]>([])
   const [loadingClaudeModels, setLoadingClaudeModels] = useState(false)
   const [loadingOpenaiModels, setLoadingOpenaiModels] = useState(false)
+  const [loadingMoonshotModels, setLoadingMoonshotModels] = useState(false)
   const [claudeCodeMaxOutputTokens, setClaudeCodeMaxOutputTokens] = useState<number | null>(32000)
   const [githubMaxArchiveSizeMb, setGithubMaxArchiveSizeMb] = useState<number>(50)
   const [threatModelerMaxTurns, setThreatModelerMaxTurns] = useState<number>(100)
@@ -85,19 +97,23 @@ export function Settings() {
         const settings = response.settings
 
         setEncryptionKeyConfigured(!!settings.encryption_key_configured)
-        setLlmProvider(settings.llm_provider === 'codex' ? 'codex' : 'claude')
+        setLlmProvider(normalizeProvider(settings.llm_provider))
         setAnthropicBaseUrl(settings.anthropic_base_url || 'https://api.anthropic.com')
         setAnthropicKeyConfigured(!!settings.anthropic_api_key)
         setOpenaiBaseUrl(settings.openai_base_url || 'https://api.openai.com/v1')
         setOpenaiKeyConfigured(!!settings.openai_api_key)
+        setMoonshotBaseUrl(settings.moonshot_base_url || 'https://api.moonshot.ai/v1')
+        setMoonshotKeyConfigured(!!settings.moonshot_api_key)
         setClaudeModel(settings.claude_model ?? '')
         setOpenaiModel(settings.openai_model || 'gpt-4.1')
+        setMoonshotModel(settings.moonshot_model || 'kimi-k2.6')
         setClaudeCodeMaxOutputTokens(settings.claude_code_max_output_tokens ?? 32000)
         setGithubMaxArchiveSizeMb(settings.github_max_archive_size_mb ?? 50)
         setThreatModelerMaxTurns(settings.threat_modeler_max_turns ?? 100)
         setThreatAdversaryEnabled(settings.threat_adversary_enabled ?? true)
         setAnthropicApiKey('')
         setOpenaiApiKey('')
+        setMoonshotApiKey('')
 
         const currentConfig = getConfig()
         setTimezone(currentConfig.timezone || 'UTC')
@@ -111,11 +127,12 @@ export function Settings() {
 
         // Best-effort: populate model dropdowns from each provider. Requires a
         // saved API key, so failures are expected and silently ignored here.
-        for (const provider of ['claude', 'codex'] as const) {
+        for (const provider of ['claude', 'codex', 'moonshot'] as const) {
           try {
             const modelsRes = await api.getModels(provider)
             if (provider === 'claude') setClaudeModels(modelsRes.models)
-            else setOpenaiModels(modelsRes.models)
+            else if (provider === 'codex') setOpenaiModels(modelsRes.models)
+            else setMoonshotModels(modelsRes.models)
           } catch (err) {
             console.warn(`Failed to load ${provider} models:`, err)
           }
@@ -132,20 +149,23 @@ export function Settings() {
     loadSettings()
   }, [isAuthenticated, user])
 
-  const loadModels = async (provider: 'claude' | 'codex', options?: { silent?: boolean }) => {
+  const loadModels = async (provider: LlmProvider, options?: { silent?: boolean }) => {
     if (provider === 'claude') setLoadingClaudeModels(true)
-    else setLoadingOpenaiModels(true)
+    else if (provider === 'codex') setLoadingOpenaiModels(true)
+    else setLoadingMoonshotModels(true)
     try {
       const res = await api.getModels(provider)
       if (provider === 'claude') setClaudeModels(res.models)
-      else setOpenaiModels(res.models)
+      else if (provider === 'codex') setOpenaiModels(res.models)
+      else setMoonshotModels(res.models)
     } catch (err: unknown) {
       if (!options?.silent) {
         showError(err instanceof Error ? err.message : 'Failed to load models')
       }
     } finally {
       if (provider === 'claude') setLoadingClaudeModels(false)
-      else setLoadingOpenaiModels(false)
+      else if (provider === 'codex') setLoadingOpenaiModels(false)
+      else setLoadingMoonshotModels(false)
     }
   }
 
@@ -166,9 +186,12 @@ export function Settings() {
           anthropic_base_url?: string
           openai_api_key?: string
           openai_base_url?: string
-          llm_provider?: 'claude' | 'codex'
+          moonshot_api_key?: string
+          moonshot_base_url?: string
+          llm_provider?: LlmProvider
           claude_model?: string | null
           openai_model?: string
+          moonshot_model?: string
           claude_code_max_output_tokens?: number | null
           github_max_archive_size_mb?: number
           threat_modeler_max_turns?: number
@@ -189,9 +212,18 @@ export function Settings() {
         if (openaiBaseUrl && openaiBaseUrl.trim().length > 0) {
           updates.openai_base_url = openaiBaseUrl
         }
+        if (moonshotApiKey && moonshotApiKey.trim().length > 0) {
+          updates.moonshot_api_key = moonshotApiKey
+        }
+        if (moonshotBaseUrl && moonshotBaseUrl.trim().length > 0) {
+          updates.moonshot_base_url = moonshotBaseUrl
+        }
         updates.claude_model = claudeModel.trim() ? claudeModel.trim() : null
         if (openaiModel && openaiModel.trim().length > 0) {
           updates.openai_model = openaiModel.trim()
+        }
+        if (moonshotModel && moonshotModel.trim().length > 0) {
+          updates.moonshot_model = moonshotModel.trim()
         }
         if (claudeCodeMaxOutputTokens !== undefined && claudeCodeMaxOutputTokens !== null) {
           updates.claude_code_max_output_tokens = claudeCodeMaxOutputTokens
@@ -246,6 +278,27 @@ export function Settings() {
           }
         }
 
+        if (updates.moonshot_api_key) {
+          setValidating(true)
+          try {
+            const validationResult = await api.validateApiKey(
+              updates.moonshot_api_key,
+              updates.moonshot_base_url || moonshotBaseUrl,
+              'moonshot',
+            )
+            if (validationResult.valid) {
+              success(validationResult.message || 'Moonshot API key is valid and working correctly')
+            } else {
+              showError(validationResult.error || 'Moonshot API key validation failed')
+            }
+          } catch (validationErr) {
+            const errorMsg = validationErr instanceof Error ? validationErr.message : 'Failed to validate API key'
+            showError(`Moonshot API key validation error: ${errorMsg}`)
+          } finally {
+            setValidating(false)
+          }
+        }
+
         await api.updateSettings(updates)
 
         // The GitHub PAT lives behind a separate endpoint but is persisted by the
@@ -267,22 +320,27 @@ export function Settings() {
         const response = await api.getSettings()
         const settings = response.settings
         setEncryptionKeyConfigured(!!settings.encryption_key_configured)
-        setLlmProvider(settings.llm_provider === 'codex' ? 'codex' : 'claude')
+        setLlmProvider(normalizeProvider(settings.llm_provider))
         setAnthropicBaseUrl(settings.anthropic_base_url || 'https://api.anthropic.com')
         setAnthropicKeyConfigured(!!settings.anthropic_api_key)
         setOpenaiBaseUrl(settings.openai_base_url || 'https://api.openai.com/v1')
         setOpenaiKeyConfigured(!!settings.openai_api_key)
+        setMoonshotBaseUrl(settings.moonshot_base_url || 'https://api.moonshot.ai/v1')
+        setMoonshotKeyConfigured(!!settings.moonshot_api_key)
         setClaudeModel(settings.claude_model ?? '')
         setOpenaiModel(settings.openai_model || 'gpt-4.1')
+        setMoonshotModel(settings.moonshot_model || 'kimi-k2.6')
         setClaudeCodeMaxOutputTokens(settings.claude_code_max_output_tokens ?? 32000)
         setGithubMaxArchiveSizeMb(settings.github_max_archive_size_mb ?? 50)
         setThreatModelerMaxTurns(settings.threat_modeler_max_turns ?? 100)
         setThreatAdversaryEnabled(settings.threat_adversary_enabled ?? true)
         setAnthropicApiKey('')
         setOpenaiApiKey('')
+        setMoonshotApiKey('')
 
         void loadModels('claude', { silent: true })
         void loadModels('codex', { silent: true })
+        void loadModels('moonshot', { silent: true })
       } else {
         updateConfig({
           anthropic: { apiKey: anthropicApiKey, baseUrl: anthropicBaseUrl },
@@ -372,6 +430,31 @@ export function Settings() {
       showError(err instanceof Error ? err.message : 'Failed to test OpenAI API key')
     } finally {
       setTestingOpenaiKey(false)
+    }
+  }
+
+  const handleTestMoonshotKey = async () => {
+    setTestingMoonshotKey(true)
+    try {
+      const typedKey = moonshotApiKey.trim()
+      if (typedKey.length > 0) {
+        const result = await api.validateApiKey(typedKey, moonshotBaseUrl || undefined, 'moonshot')
+        if (result.valid) {
+          success(result.message || 'Moonshot API key is valid and working correctly')
+        } else {
+          showError(result.error || 'Moonshot API key validation failed')
+        }
+      } else if (moonshotKeyConfigured) {
+        // No new key typed: exercise the stored key by listing models.
+        await api.getModels('moonshot')
+        success('Saved Moonshot API key is valid and working correctly')
+      } else {
+        showError('Enter a Moonshot API key to test, or save one first')
+      }
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Failed to test Moonshot API key')
+    } finally {
+      setTestingMoonshotKey(false)
     }
   }
 
@@ -568,11 +651,12 @@ export function Settings() {
             <select
               id="llm-provider"
               value={llmProvider}
-              onChange={(e) => setLlmProvider(e.target.value as 'claude' | 'codex')}
+              onChange={(e) => setLlmProvider(e.target.value as LlmProvider)}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <option value="claude">Anthropic Claude</option>
               <option value="codex">OpenAI (Codex)</option>
+              <option value="moonshot">Moonshot (Kimi)</option>
             </select>
             <p className="text-xs text-muted-foreground">
               Changes take effect after you click Save Configuration at the bottom of the page.
@@ -789,6 +873,104 @@ export function Settings() {
                 </select>
                 <p className="text-xs text-muted-foreground">
                   Loaded from your OpenAI account. Save an API key first, then Refresh. Required when using the OpenAI provider.
+                </p>
+              </div>
+            </div>
+          </div>
+          )}
+
+          {llmProvider === 'moonshot' && (
+          <div>
+            <h3 className="text-lg font-semibold mb-4">Moonshot API Configuration</h3>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="moonshot-api-key" className="text-sm font-medium">
+                    Moonshot API Key
+                  </label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-label="Test Moonshot API key"
+                    onClick={handleTestMoonshotKey}
+                    disabled={testingMoonshotKey}
+                  >
+                    {testingMoonshotKey ? 'Testing...' : 'Test'}
+                  </Button>
+                </div>
+                {moonshotKeyConfigured ? (
+                  <span
+                    data-testid="moonshot-key-status-configured"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-green-600"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-green-500" aria-hidden="true" />
+                    Configured (encrypted at rest)
+                  </span>
+                ) : (
+                  <span
+                    data-testid="moonshot-key-status-missing"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-muted-foreground/40" aria-hidden="true" />
+                    Not configured
+                  </span>
+                )}
+                <Input
+                  id="moonshot-api-key"
+                  type="password"
+                  value={moonshotApiKey}
+                  onChange={(e) => setMoonshotApiKey(e.target.value)}
+                  placeholder="Enter your Moonshot API key (will be encrypted)"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Used when Active Provider is Moonshot (Kimi). Leave empty to keep current value.
+                  Test checks the entered key, or the saved key if the field is blank.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="moonshot-base-url" className="text-sm font-medium">
+                  Moonshot Base URL
+                </label>
+                <Input
+                  id="moonshot-base-url"
+                  type="text"
+                  value={moonshotBaseUrl}
+                  onChange={(e) => setMoonshotBaseUrl(e.target.value)}
+                  placeholder="https://api.moonshot.ai/v1"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="moonshot-model" className="text-sm font-medium">
+                    Moonshot Model
+                  </label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadModels('moonshot')}
+                    disabled={loadingMoonshotModels}
+                  >
+                    {loadingMoonshotModels ? 'Loading...' : 'Refresh list'}
+                  </Button>
+                </div>
+                <select
+                  id="moonshot-model"
+                  value={moonshotModel}
+                  onChange={(e) => setMoonshotModel(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {buildModelOptions(moonshotModels, moonshotModel).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Loaded from your Moonshot account. Save an API key first, then Refresh. Defaults to kimi-k2.6.
                 </p>
               </div>
             </div>

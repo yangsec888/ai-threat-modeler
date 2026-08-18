@@ -485,24 +485,59 @@ paths:
           application/json:
             schema:
               type: object
+              description: >-
+                All fields are optional; provide only the settings you want to
+                change. The encryption_key cannot be set here — use
+                POST /api/settings/regenerate-encryption-key to rotate it.
               properties:
-                encryption_key:
-                  type: string
-                  minLength: 32
-                  description: Encryption key for API key storage (min 32 chars)
                 anthropic_api_key:
                   type: string
-                  description: Anthropic API key
+                  description: Anthropic API key (encrypted at rest)
                 anthropic_base_url:
                   type: string
                   description: Anthropic API base URL
                   default: https://api.anthropic.com
+                openai_api_key:
+                  type: string
+                  description: OpenAI API key (encrypted at rest); used by the codex provider
+                openai_base_url:
+                  type: string
+                  description: OpenAI-compatible API base URL
+                  default: https://api.openai.com/v1
+                moonshot_api_key:
+                  type: string
+                  description: Moonshot API key (encrypted at rest); used by the moonshot provider
+                moonshot_base_url:
+                  type: string
+                  description: Moonshot OpenAI-compatible API base URL
+                  default: https://api.moonshot.ai/v1
+                llm_provider:
+                  type: string
+                  enum: [claude, codex, moonshot]
+                  description: Active model provider for threat modeling, chat, and context extraction
+                claude_model:
+                  type: string
+                  nullable: true
+                  description: Selected Claude model; null uses the agent default (opus)
+                openai_model:
+                  type: string
+                  description: Selected OpenAI model (required when provider is codex)
+                  default: gpt-4.1
+                moonshot_model:
+                  type: string
+                  description: Selected Moonshot/Kimi model
+                  default: kimi-k2.6
                 claude_code_max_output_tokens:
                   type: integer
                   minimum: 1
                   maximum: 1000000
                   nullable: true
                   description: Maximum output tokens for Claude Code
+                github_max_archive_size_mb:
+                  type: integer
+                  minimum: 1
+                  maximum: 5000
+                  description: Reject GitHub zipballs larger than this (MB)
                 threat_modeler_max_turns:
                   type: integer
                   minimum: 1
@@ -574,7 +609,7 @@ paths:
       tags:
         - Settings
       summary: Validate API key
-      description: Test if an Anthropic API key is valid (Admin only)
+      description: Test if a provider API key is valid (Admin only)
       requestBody:
         required: true
         content:
@@ -586,11 +621,19 @@ paths:
               properties:
                 api_key:
                   type: string
-                  description: Anthropic API key to validate
+                  description: Provider API key to validate
                 base_url:
                   type: string
-                  description: Anthropic API base URL
-                  default: https://api.anthropic.com
+                  description: >-
+                    Provider API base URL. Defaults per provider:
+                    https://api.anthropic.com (claude),
+                    https://api.openai.com/v1 (codex),
+                    https://api.moonshot.ai/v1 (moonshot).
+                provider:
+                  type: string
+                  enum: [claude, codex, moonshot]
+                  default: claude
+                  description: Which provider the key belongs to
       responses:
         '200':
           description: Validation result
@@ -615,6 +658,64 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalError'
+
+  /api/settings/models:
+    get:
+      tags:
+        - Settings
+      summary: List available models for a provider
+      description: >-
+        List models available for the given provider using the stored,
+        encrypted credentials (Admin only). Requires that the provider's API
+        key has already been saved.
+      parameters:
+        - in: query
+          name: provider
+          required: false
+          schema:
+            type: string
+            enum: [claude, codex, moonshot]
+          description: Provider to list models for; defaults to the active provider
+      responses:
+        '200':
+          description: Models retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  provider:
+                    type: string
+                    enum: [claude, codex, moonshot]
+                  models:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        label:
+                          type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '502':
+          description: Failed to load models from the provider
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  message:
+                    type: string
 
   /api/threat-modeling:
     post:
@@ -1206,9 +1307,10 @@ components:
     Settings:
       type: object
       properties:
-        encryption_key:
-          type: string
-          description: Encryption key for API key storage
+        encryption_key_configured:
+          type: boolean
+          description: Whether a server-side encryption key is configured (the key itself is never exposed)
+          example: true
         anthropic_api_key:
           type: string
           nullable: true
@@ -1217,12 +1319,47 @@ components:
         anthropic_base_url:
           type: string
           example: https://api.anthropic.com
+        openai_api_key:
+          type: string
+          nullable: true
+          description: Shows "***ENCRYPTED***" when API key is set
+          example: "***ENCRYPTED***"
+        openai_base_url:
+          type: string
+          example: https://api.openai.com/v1
+        moonshot_api_key:
+          type: string
+          nullable: true
+          description: Shows "***ENCRYPTED***" when API key is set
+          example: "***ENCRYPTED***"
+        moonshot_base_url:
+          type: string
+          example: https://api.moonshot.ai/v1
+        llm_provider:
+          type: string
+          enum: [claude, codex, moonshot]
+          example: claude
+        claude_model:
+          type: string
+          nullable: true
+          description: Selected Claude model; null uses the agent default (opus)
+        openai_model:
+          type: string
+          example: gpt-4.1
+        moonshot_model:
+          type: string
+          example: kimi-k2.6
         claude_code_max_output_tokens:
           type: integer
           nullable: true
           minimum: 1
           maximum: 1000000
           example: 32000
+        github_max_archive_size_mb:
+          type: integer
+          minimum: 1
+          maximum: 5000
+          example: 50
         threat_modeler_max_turns:
           type: integer
           minimum: 1

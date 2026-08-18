@@ -51,9 +51,10 @@ Edit `docker-compose.yml`:
 
 ## Bundled agent runtime
 
-The backend image bundles **`appsec-agent@3.2.3`**, which pulls in:
+The backend image bundles **`appsec-agent@3.8.0`**, which pulls in:
 
-- the **Claude Agent SDK** with native `claude` binaries (default provider), and
-- the **`codex` CLI** for the OpenAI provider.
+- the **Claude Agent SDK** with native `claude` binaries (default provider),
+- the **`codex` CLI** for the OpenAI provider, and
+- the **`openai` SDK** used by the Moonshot (Kimi) provider. Moonshot runs against an OpenAI-compatible HTTP API and needs no platform-specific binary, so there is no extra native-binary check for it in `backend/Dockerfile`.
 
 Upgrading `appsec-agent` is a matter of bumping the version in `backend/package.json` and rebuilding the backend image.

@@ -21,8 +21,9 @@ Job-specific detail also lands under `./backend/logs/` and in each job's `error_
 | Symptom | Likely cause | What to do |
 |---------|--------------|------------|
 | "Agent provider not configured" on job start | No API key saved | **Settings → LLM Provider** → paste key → **Save Configuration** |
-| Key validation fails on save | Wrong key, base URL, or provider mismatch | Confirm you're on the right provider (Claude vs OpenAI); check base URL; use the **Test** button |
+| Key validation fails on save | Wrong key, base URL, or provider mismatch | Confirm you're on the right provider (Claude, OpenAI, or Moonshot); check base URL; use the **Test** button |
 | OpenAI selected but jobs fail | Codex provider not available in the image | Use Claude (default), or ensure the backend image includes the `codex` CLI (see `backend/Dockerfile`) |
+| Moonshot selected but jobs fail | Missing/invalid Moonshot key or base URL | Confirm the Moonshot API key is saved and **Test** passes; default base URL is `https://api.moonshot.ai/v1`. Requires `appsec-agent@3.8.0`+ in the backend image |
 
 ## Staging and context extraction
 

@@ -26,9 +26,12 @@ const mockSettings = {
   anthropic_base_url: 'https://api.anthropic.com',
   openai_api_key: null,
   openai_base_url: 'https://api.openai.com/v1',
+  moonshot_api_key: null,
+  moonshot_base_url: 'https://api.moonshot.ai/v1',
   llm_provider: 'claude',
   claude_model: null,
   openai_model: 'gpt-4.1',
+  moonshot_model: 'kimi-k2.6',
   claude_code_max_output_tokens: 32000,
   github_max_archive_size_mb: 50,
   threat_modeler_max_turns: 100,
@@ -300,6 +303,49 @@ describe('SettingsModel', () => {
       });
 
       expect(() => SettingsModel.getAgentProviderConfig()).toThrow('OpenAI API key not configured');
+    });
+
+    it('returns Moonshot config when llm_provider is moonshot', () => {
+      const encryptionKey = 'test-encryption-key-12345678901234567890';
+      const encryptedMoonshotKey = encrypt('sk-moonshot', encryptionKey);
+      mockGetStmt.get.mockReturnValue({
+        ...mockSettings,
+        encryption_key: encryptionKey,
+        moonshot_api_key: encryptedMoonshotKey,
+        llm_provider: 'moonshot',
+        moonshot_model: 'kimi-k2.6',
+        moonshot_base_url: 'https://api.moonshot.ai/v1',
+      });
+
+      const config = SettingsModel.getAgentProviderConfig();
+      expect(config.provider).toBe('moonshot');
+      expect(config.apiKey).toBe('sk-moonshot');
+      expect(config.model).toBe('kimi-k2.6');
+      expect(config.baseUrl).toBe('https://api.moonshot.ai/v1');
+    });
+
+    it('throws when Moonshot key missing for moonshot provider', () => {
+      mockGetStmt.get.mockReturnValue({
+        ...mockSettings,
+        llm_provider: 'moonshot',
+        moonshot_api_key: null,
+      });
+
+      expect(() => SettingsModel.getAgentProviderConfig()).toThrow('Moonshot API key not configured');
+    });
+  });
+
+  describe('provider normalization', () => {
+    it('normalizes an unknown llm_provider to claude in get()', () => {
+      mockGetStmt.get.mockReturnValue({ ...mockSettings, llm_provider: 'moonshot' });
+      expect(SettingsModel.get().llm_provider).toBe('moonshot');
+    });
+
+    it('rejects an invalid llm_provider on update', () => {
+      expect(() =>
+        // @ts-expect-error intentionally invalid provider
+        SettingsModel.update({ llm_provider: 'gemini' }),
+      ).toThrow(/Invalid llm_provider/);
     });
   });
 

@@ -24,9 +24,13 @@ export interface SettingsWithoutSensitive {
   openai_api_key: string | null; // Decrypted API key (only when needed)
   openai_api_key_configured: boolean; // Whether a key is stored (no decryption needed)
   openai_base_url: string;
+  moonshot_api_key: string | null; // Decrypted API key (only when needed)
+  moonshot_api_key_configured: boolean; // Whether a key is stored (no decryption needed)
+  moonshot_base_url: string;
   llm_provider: LlmProvider;
   claude_model: string | null;
   openai_model: string;
+  moonshot_model: string;
   claude_code_max_output_tokens: number | null;
   github_max_archive_size_mb: number | null;
   threat_modeler_max_turns: number | null;
@@ -45,10 +49,10 @@ export interface AgentProviderConfig {
 
 function normalizeLlmProvider(raw: string | null | undefined): LlmProvider {
   const id = (raw ?? 'claude').toLowerCase().trim();
-  if (id === 'claude' || id === 'codex') {
+  if (id === 'claude' || id === 'codex' || id === 'moonshot') {
     return id;
   }
-  throw new Error(`Invalid llm_provider "${raw}". Valid values: claude, codex`);
+  throw new Error(`Invalid llm_provider "${raw}". Valid values: claude, codex, moonshot`);
 }
 
 function decryptStoredApiKey(
@@ -82,6 +86,7 @@ export class SettingsModel {
 
     let decryptedAnthropicKey: string | null = null;
     let decryptedOpenAiKey: string | null = null;
+    let decryptedMoonshotKey: string | null = null;
     if (includeDecryptedApiKey) {
       decryptedAnthropicKey = decryptStoredApiKey(
         settings.anthropic_api_key,
@@ -92,6 +97,11 @@ export class SettingsModel {
         settings.openai_api_key,
         settings.encryption_key,
         'OpenAI API key',
+      );
+      decryptedMoonshotKey = decryptStoredApiKey(
+        settings.moonshot_api_key,
+        settings.encryption_key,
+        'Moonshot API key',
       );
     }
     
@@ -104,9 +114,13 @@ export class SettingsModel {
       openai_api_key: decryptedOpenAiKey,
       openai_api_key_configured: !!settings.openai_api_key,
       openai_base_url: settings.openai_base_url ?? 'https://api.openai.com/v1',
+      moonshot_api_key: decryptedMoonshotKey,
+      moonshot_api_key_configured: !!settings.moonshot_api_key,
+      moonshot_base_url: settings.moonshot_base_url ?? 'https://api.moonshot.ai/v1',
       llm_provider: normalizeLlmProvider(settings.llm_provider),
       claude_model: settings.claude_model,
       openai_model: settings.openai_model ?? 'gpt-4.1',
+      moonshot_model: settings.moonshot_model ?? 'kimi-k2.6',
       claude_code_max_output_tokens: settings.claude_code_max_output_tokens,
       github_max_archive_size_mb: settings.github_max_archive_size_mb ?? 50,
       threat_modeler_max_turns: settings.threat_modeler_max_turns ?? 100,
@@ -154,10 +168,12 @@ export class SettingsModel {
     newEncryptionKey: string,
     anthropicPlain: string | null,
     openaiPlain: string | null,
-  ): { anthropic: string | null; openai: string | null } {
+    moonshotPlain: string | null,
+  ): { anthropic: string | null; openai: string | null; moonshot: string | null } {
     return {
       anthropic: anthropicPlain ? encrypt(anthropicPlain, newEncryptionKey) : null,
       openai: openaiPlain ? encrypt(openaiPlain, newEncryptionKey) : null,
+      moonshot: moonshotPlain ? encrypt(moonshotPlain, newEncryptionKey) : null,
     };
   }
 
@@ -175,6 +191,7 @@ export class SettingsModel {
       newEncryptionKey,
       currentSettings.anthropic_api_key,
       currentSettings.openai_api_key,
+      currentSettings.moonshot_api_key,
     );
     
     const stmt = db.prepare(`
@@ -182,11 +199,12 @@ export class SettingsModel {
       SET encryption_key = ?, 
           anthropic_api_key = ?,
           openai_api_key = ?,
+          moonshot_api_key = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = 1
     `);
     
-    stmt.run(newEncryptionKey, encrypted.anthropic, encrypted.openai);
+    stmt.run(newEncryptionKey, encrypted.anthropic, encrypted.openai, encrypted.moonshot);
   }
 
   /**
@@ -202,11 +220,13 @@ export class SettingsModel {
     
     let anthropicPlain: string | null = null;
     let openaiPlain: string | null = null;
+    let moonshotPlain: string | null = null;
     try {
       const withKeys = this.get(true);
       anthropicPlain = withKeys.anthropic_api_key;
       openaiPlain = withKeys.openai_api_key;
-      if (anthropicPlain || openaiPlain) {
+      moonshotPlain = withKeys.moonshot_api_key;
+      if (anthropicPlain || openaiPlain || moonshotPlain) {
         logger.info('✅ Re-encrypted API keys with new encryption key');
       } else {
         logger.info('ℹ️  No API keys to re-encrypt');
@@ -216,18 +236,19 @@ export class SettingsModel {
       throw new Error('Failed to re-encrypt API keys. An existing key may be corrupted or the encryption key may have changed.');
     }
 
-    const encrypted = this.reEncryptApiKeys(newEncryptionKey, anthropicPlain, openaiPlain);
+    const encrypted = this.reEncryptApiKeys(newEncryptionKey, anthropicPlain, openaiPlain, moonshotPlain);
     
     const stmt = db.prepare(`
       UPDATE settings 
       SET encryption_key = ?, 
           anthropic_api_key = ?,
           openai_api_key = ?,
+          moonshot_api_key = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = 1
     `);
     
-    stmt.run(newEncryptionKey, encrypted.anthropic, encrypted.openai);
+    stmt.run(newEncryptionKey, encrypted.anthropic, encrypted.openai, encrypted.moonshot);
     logger.info('✅ Encryption key regenerated successfully');
     
     return newEncryptionKey;
@@ -268,6 +289,23 @@ export class SettingsModel {
   }
 
   /**
+   * Update Moonshot API key (encrypts before storing)
+   */
+  static updateMoonshotApiKey(apiKey: string): void {
+    const currentSettings = this.get(false);
+    const encryptedApiKey = encrypt(apiKey, currentSettings.encryption_key);
+    
+    const stmt = db.prepare(`
+      UPDATE settings 
+      SET moonshot_api_key = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = 1
+    `);
+    
+    stmt.run(encryptedApiKey);
+  }
+
+  /**
    * Update Anthropic base URL
    */
   static updateAnthropicBaseUrl(baseUrl: string): void {
@@ -288,6 +326,20 @@ export class SettingsModel {
     const stmt = db.prepare(`
       UPDATE settings 
       SET openai_base_url = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = 1
+    `);
+    
+    stmt.run(baseUrl);
+  }
+
+  /**
+   * Update Moonshot base URL
+   */
+  static updateMoonshotBaseUrl(baseUrl: string): void {
+    const stmt = db.prepare(`
+      UPDATE settings 
+      SET moonshot_base_url = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = 1
     `);
@@ -322,9 +374,12 @@ export class SettingsModel {
     anthropic_base_url?: string;
     openai_api_key?: string;
     openai_base_url?: string;
+    moonshot_api_key?: string;
+    moonshot_base_url?: string;
     llm_provider?: LlmProvider;
     claude_model?: string | null;
     openai_model?: string;
+    moonshot_model?: string;
     claude_code_max_output_tokens?: number | null;
     github_max_archive_size_mb?: number;
     threat_modeler_max_turns?: number;
@@ -338,11 +393,16 @@ export class SettingsModel {
         throw new Error('Encryption key must be at least 32 characters');
       }
 
-      const stmtRow = db.prepare('SELECT anthropic_api_key, openai_api_key FROM settings WHERE id = 1');
-      const row = stmtRow.get() as { anthropic_api_key: string | null; openai_api_key: string | null } | undefined;
+      const stmtRow = db.prepare('SELECT anthropic_api_key, openai_api_key, moonshot_api_key FROM settings WHERE id = 1');
+      const row = stmtRow.get() as {
+        anthropic_api_key: string | null;
+        openai_api_key: string | null;
+        moonshot_api_key: string | null;
+      } | undefined;
 
       let anthropicPlain: string | null = null;
       let openaiPlain: string | null = null;
+      let moonshotPlain: string | null = null;
       if (row?.anthropic_api_key) {
         try {
           anthropicPlain = decrypt(row.anthropic_api_key, oldEncryptionKey);
@@ -359,6 +419,14 @@ export class SettingsModel {
           throw new Error('Failed to decrypt existing OpenAI API key. Cannot update encryption key.');
         }
       }
+      if (row?.moonshot_api_key) {
+        try {
+          moonshotPlain = decrypt(row.moonshot_api_key, oldEncryptionKey);
+        } catch (error) {
+          logger.warn('Could not decrypt existing Moonshot API key for re-encryption:', error);
+          throw new Error('Failed to decrypt existing Moonshot API key. Cannot update encryption key.');
+        }
+      }
 
       const updateKeyStmt = db.prepare(`
         UPDATE settings 
@@ -368,7 +436,7 @@ export class SettingsModel {
       `);
       updateKeyStmt.run(updates.encryption_key);
 
-      const encrypted = this.reEncryptApiKeys(updates.encryption_key, anthropicPlain, openaiPlain);
+      const encrypted = this.reEncryptApiKeys(updates.encryption_key, anthropicPlain, openaiPlain, moonshotPlain);
       if (anthropicPlain) {
         db.prepare(`UPDATE settings SET anthropic_api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`)
           .run(encrypted.anthropic);
@@ -376,6 +444,10 @@ export class SettingsModel {
       if (openaiPlain) {
         db.prepare(`UPDATE settings SET openai_api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`)
           .run(encrypted.openai);
+      }
+      if (moonshotPlain) {
+        db.prepare(`UPDATE settings SET moonshot_api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`)
+          .run(encrypted.moonshot);
       }
     }
     
@@ -392,6 +464,13 @@ export class SettingsModel {
       }
       this.updateOpenAiApiKey(updates.openai_api_key);
     }
+
+    if (updates.moonshot_api_key !== undefined) {
+      if (updates.moonshot_api_key.trim().length === 0) {
+        throw new Error('Moonshot API key cannot be empty');
+      }
+      this.updateMoonshotApiKey(updates.moonshot_api_key);
+    }
     
     if (updates.anthropic_base_url !== undefined) {
       this.updateAnthropicBaseUrl(updates.anthropic_base_url);
@@ -399,6 +478,10 @@ export class SettingsModel {
 
     if (updates.openai_base_url !== undefined) {
       this.updateOpenAiBaseUrl(updates.openai_base_url);
+    }
+
+    if (updates.moonshot_base_url !== undefined) {
+      this.updateMoonshotBaseUrl(updates.moonshot_base_url);
     }
 
     if (updates.llm_provider !== undefined) {
@@ -422,6 +505,16 @@ export class SettingsModel {
       }
       db.prepare(`
         UPDATE settings SET openai_model = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1
+      `).run(value);
+    }
+
+    if (updates.moonshot_model !== undefined) {
+      const value = updates.moonshot_model.trim();
+      if (!value) {
+        throw new Error('Moonshot model cannot be empty');
+      }
+      db.prepare(`
+        UPDATE settings SET moonshot_model = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1
       `).run(value);
     }
     
@@ -464,7 +557,9 @@ export class SettingsModel {
     }
     
     return this.get(
-      updates.anthropic_api_key !== undefined || updates.openai_api_key !== undefined,
+      updates.anthropic_api_key !== undefined ||
+        updates.openai_api_key !== undefined ||
+        updates.moonshot_api_key !== undefined,
     );
   }
 
@@ -516,6 +611,19 @@ export class SettingsModel {
         apiKey: settings.openai_api_key,
         baseUrl: settings.openai_base_url,
         model: settings.openai_model,
+        claudeCodeMaxOutputTokens: settings.claude_code_max_output_tokens,
+      };
+    }
+
+    if (provider === 'moonshot') {
+      if (!settings.moonshot_api_key || settings.moonshot_api_key.trim().length === 0) {
+        throw new Error('Moonshot API key not configured. Please configure it in the admin settings panel.');
+      }
+      return {
+        provider: 'moonshot',
+        apiKey: settings.moonshot_api_key,
+        baseUrl: settings.moonshot_base_url,
+        model: settings.moonshot_model,
         claudeCodeMaxOutputTokens: settings.claude_code_max_output_tokens,
       };
     }

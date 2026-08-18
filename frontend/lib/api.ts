@@ -566,9 +566,12 @@ export const api = {
     anthropic_base_url?: string;
     openai_api_key?: string;
     openai_base_url?: string;
-    llm_provider?: 'claude' | 'codex';
+    moonshot_api_key?: string;
+    moonshot_base_url?: string;
+    llm_provider?: 'claude' | 'codex' | 'moonshot';
     claude_model?: string | null;
     openai_model?: string;
+    moonshot_model?: string;
     claude_code_max_output_tokens?: number | null;
     github_max_archive_size_mb?: number;
     threat_modeler_max_turns?: number;
@@ -604,7 +607,7 @@ export const api = {
     return response.json();
   },
 
-  validateApiKey: async (apiKey: string, baseUrl?: string, provider: 'claude' | 'codex' = 'claude') => {
+  validateApiKey: async (apiKey: string, baseUrl?: string, provider: 'claude' | 'codex' | 'moonshot' = 'claude') => {
     const response = await fetch(`${API_BASE_URL}/settings/validate-api-key`, {
       method: 'POST',
       headers: getAuthHeaders(),
@@ -620,7 +623,7 @@ export const api = {
     return response.json();
   },
 
-  getModels: async (provider: 'claude' | 'codex') => {
+  getModels: async (provider: 'claude' | 'codex' | 'moonshot') => {
     const response = await fetch(`${API_BASE_URL}/settings/models?provider=${provider}`, {
       method: 'GET',
       headers: getAuthHeaders(),
@@ -634,7 +637,7 @@ export const api = {
 
     return response.json() as Promise<{
       status: string;
-      provider: 'claude' | 'codex';
+      provider: 'claude' | 'codex' | 'moonshot';
       models: Array<{ id: string; label: string }>;
     }>;
   },

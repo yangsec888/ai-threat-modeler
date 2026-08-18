@@ -19,9 +19,12 @@ function toPublicSettings(settings: ReturnType<typeof SettingsModel.get>) {
     anthropic_base_url: settings.anthropic_base_url,
     openai_api_key: settings.openai_api_key_configured ? '***ENCRYPTED***' : null,
     openai_base_url: settings.openai_base_url,
+    moonshot_api_key: settings.moonshot_api_key_configured ? '***ENCRYPTED***' : null,
+    moonshot_base_url: settings.moonshot_base_url,
     llm_provider: settings.llm_provider,
     claude_model: settings.claude_model,
     openai_model: settings.openai_model,
+    moonshot_model: settings.moonshot_model,
     claude_code_max_output_tokens: settings.claude_code_max_output_tokens,
     github_max_archive_size_mb: settings.github_max_archive_size_mb,
     threat_modeler_max_turns: settings.threat_modeler_max_turns,
@@ -31,7 +34,7 @@ function toPublicSettings(settings: ReturnType<typeof SettingsModel.get>) {
 }
 
 function isValidLlmProvider(value: unknown): value is LlmProvider {
-  return value === 'claude' || value === 'codex';
+  return value === 'claude' || value === 'codex' || value === 'moonshot';
 }
 
 async function validateAnthropicApiKey(apiKey: string, baseUrl: string): Promise<{ valid: boolean; message?: string; error?: string }> {
@@ -142,6 +145,61 @@ async function listOpenAiModels(apiKey: string, baseUrl: string): Promise<ModelO
   return selected.map((id) => ({ id, label: id }));
 }
 
+// Moonshot exposes an OpenAI-compatible API (Bearer auth, GET {base}/models).
+async function validateMoonshotApiKey(apiKey: string, baseUrl: string): Promise<{ valid: boolean; message?: string; error?: string }> {
+  const normalizedBase = baseUrl.replace(/\/$/, '');
+  const response = await fetch(`${normalizedBase}/models`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
+  });
+
+  if (response.ok) {
+    return { valid: true, message: 'Moonshot API key is valid and working correctly' };
+  }
+  if (response.status === 401) {
+    return { valid: false, error: 'Invalid Moonshot API key. Please check your API key and try again.' };
+  }
+  if (response.status === 403) {
+    return { valid: false, error: 'Moonshot API key does not have permission to access this resource.' };
+  }
+  const errorText = await response.text().catch(() => 'Unknown error');
+  return {
+    valid: false,
+    error: `Moonshot API validation failed: ${response.status} ${response.statusText}. ${errorText}`,
+  };
+}
+
+async function listMoonshotModels(apiKey: string, baseUrl: string): Promise<ModelOption[]> {
+  const normalizedBase = baseUrl.replace(/\/$/, '');
+  const response = await fetch(`${normalizedBase}/models`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error');
+    throw new Error(`Moonshot models request failed: ${response.status} ${response.statusText}. ${errorText}`);
+  }
+
+  const body = (await response.json()) as { data?: Array<{ id?: string }> };
+  const data = Array.isArray(body.data) ? body.data : [];
+  const ids = data
+    .map((m) => m.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    .sort((a, b) => a.localeCompare(b));
+
+  // Prefer Kimi/Moonshot ids; fall back to the full list if the filter is empty.
+  const kimiModels = ids.filter((id) => /^(kimi|moonshot)/i.test(id));
+  const selected = kimiModels.length > 0 ? kimiModels : ids;
+  return selected.map((id) => ({ id, label: id }));
+}
+
 // GET /api/settings - Get current settings
 router.get('/', authenticateToken, (req: AuthRequest, res: Response) => {
   try {
@@ -179,9 +237,12 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       anthropic_base_url,
       openai_api_key,
       openai_base_url,
+      moonshot_api_key,
+      moonshot_base_url,
       llm_provider,
       claude_model,
       openai_model,
+      moonshot_model,
       claude_code_max_output_tokens,
       github_max_archive_size_mb,
       threat_modeler_max_turns,
@@ -199,9 +260,12 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       anthropic_base_url !== undefined ||
       openai_api_key !== undefined ||
       openai_base_url !== undefined ||
+      moonshot_api_key !== undefined ||
+      moonshot_base_url !== undefined ||
       llm_provider !== undefined ||
       claude_model !== undefined ||
       openai_model !== undefined ||
+      moonshot_model !== undefined ||
       claude_code_max_output_tokens !== undefined ||
       github_max_archive_size_mb !== undefined ||
       threat_modeler_max_turns !== undefined ||
@@ -222,6 +286,12 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
         return res.status(400).json({ error: 'OpenAI API key must be a non-empty string' });
       }
     }
+
+    if (moonshot_api_key !== undefined) {
+      if (typeof moonshot_api_key !== 'string' || moonshot_api_key.trim().length === 0) {
+        return res.status(400).json({ error: 'Moonshot API key must be a non-empty string' });
+      }
+    }
     
     if (anthropic_base_url !== undefined) {
       if (typeof anthropic_base_url !== 'string' || anthropic_base_url.trim().length === 0) {
@@ -235,8 +305,14 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       }
     }
 
+    if (moonshot_base_url !== undefined) {
+      if (typeof moonshot_base_url !== 'string' || moonshot_base_url.trim().length === 0) {
+        return res.status(400).json({ error: 'Moonshot base URL must be a non-empty string' });
+      }
+    }
+
     if (llm_provider !== undefined && !isValidLlmProvider(llm_provider)) {
-      return res.status(400).json({ error: 'llm_provider must be "claude" or "codex"' });
+      return res.status(400).json({ error: 'llm_provider must be "claude", "codex", or "moonshot"' });
     }
 
     if (claude_model !== undefined && claude_model !== null && typeof claude_model !== 'string') {
@@ -246,6 +322,12 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
     if (openai_model !== undefined) {
       if (typeof openai_model !== 'string' || openai_model.trim().length === 0) {
         return res.status(400).json({ error: 'openai_model must be a non-empty string' });
+      }
+    }
+
+    if (moonshot_model !== undefined) {
+      if (typeof moonshot_model !== 'string' || moonshot_model.trim().length === 0) {
+        return res.status(400).json({ error: 'moonshot_model must be a non-empty string' });
       }
     }
     
@@ -282,9 +364,12 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       anthropic_base_url,
       openai_api_key,
       openai_base_url,
+      moonshot_api_key,
+      moonshot_base_url,
       llm_provider,
       claude_model,
       openai_model,
+      moonshot_model,
       claude_code_max_output_tokens,
       github_max_archive_size_mb,
       threat_modeler_max_turns,
@@ -335,7 +420,7 @@ router.post('/validate-api-key', authenticateToken, async (req: AuthRequest, res
     }
     
     const { api_key, base_url, provider } = req.body;
-    const resolvedProvider: LlmProvider = provider === 'codex' ? 'codex' : 'claude';
+    const resolvedProvider: LlmProvider = isValidLlmProvider(provider) ? provider : 'claude';
     
     if (!api_key || typeof api_key !== 'string' || api_key.trim().length === 0) {
       return res.status(400).json({ 
@@ -345,10 +430,22 @@ router.post('/validate-api-key', authenticateToken, async (req: AuthRequest, res
     }
     
     try {
-      const result =
-        resolvedProvider === 'codex'
-          ? await validateOpenAiApiKey(api_key, base_url || 'https://api.openai.com/v1')
-          : await validateAnthropicApiKey(api_key, base_url || 'https://api.anthropic.com');
+      let result: { valid: boolean; message?: string; error?: string };
+      switch (resolvedProvider) {
+        case 'codex':
+          result = await validateOpenAiApiKey(api_key, base_url || 'https://api.openai.com/v1');
+          break;
+        case 'moonshot':
+          result = await validateMoonshotApiKey(api_key, base_url || 'https://api.moonshot.ai/v1');
+          break;
+        case 'claude':
+          result = await validateAnthropicApiKey(api_key, base_url || 'https://api.anthropic.com');
+          break;
+        default: {
+          const _exhaustive: never = resolvedProvider;
+          throw new Error(`Unsupported provider: ${String(_exhaustive)}`);
+        }
+      }
       return res.json(result);
     } catch (fetchError) {
       logger.error('API validation fetch error:', fetchError);
@@ -400,6 +497,16 @@ router.get('/models', authenticateToken, async (req: AuthRequest, res: Response)
         });
       }
       const models = await listOpenAiModels(settings.openai_api_key, settings.openai_base_url);
+      return res.json({ status: 'success', provider, models });
+    }
+
+    if (provider === 'moonshot') {
+      if (!settings.moonshot_api_key || settings.moonshot_api_key.trim().length === 0) {
+        return res.status(400).json({
+          error: 'Moonshot API key not configured. Save your Moonshot API key first to load models.',
+        });
+      }
+      const models = await listMoonshotModels(settings.moonshot_api_key, settings.moonshot_base_url);
       return res.json({ status: 'success', provider, models });
     }
 
