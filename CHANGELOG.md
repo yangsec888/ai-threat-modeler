@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-08-17
+
+### Changed
+
+- **Bumped `appsec-agent` to `^3.8.1`** (from `^3.8.0`) in the root and backend packages. This corrects the Moonshot `kimi-k3` cost-estimate rate to Moonshot's actual API pricing (`$3.00` / `$15.00` per M input/output, up from `$1.20` / `$5.00`), so per-job estimates for the Opus-class Kimi flagship are accurate rather than ~2.5× low.
+- **Root, backend, and frontend package versions bumped to `2.3.2`.**
+
 ## [2.3.1] - 2026-08-17
 
 ### Fixed
