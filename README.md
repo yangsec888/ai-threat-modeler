@@ -14,7 +14,7 @@ Or [watch on the file page](https://github.com/yangsec888/ai-threat-modeler/blob
 
 ## Try it in 3 steps
 
-You'll need **Docker** and an **Anthropic (Claude) API key** — or an OpenAI key if you prefer.
+You'll need **Docker** and an API key for one of the supported providers — **Anthropic (Claude)**, **OpenAI**, or **DeepInfra** to run **open-weight models** (Kimi, GLM, DeepSeek).
 
 ```bash
 # 1. Create your env file + a random secret
@@ -47,6 +47,15 @@ Every job runs a short **stage → run** flow so the AI understands your deploym
 
 1. **Analyze** — the app auto-fills six editable context fields (project summary, security context, deployment context, and more). Edit them or leave them blank.
 2. **Run** — the agent produces the full STRIDE report, and it shows live status on the dashboard.
+
+## Model providers
+
+Bring your own key for whichever provider fits your budget and compliance needs — pick the provider and model in **Settings**:
+
+- **Anthropic (Claude)** and **OpenAI** — hosted frontier models.
+- **DeepInfra — open-weight models.** Run the **Kimi**, **GLM**, and **DeepSeek** families behind an OpenAI-compatible API on a HIPAA- and SOC 2-certified inference cloud. The model picker lists each option with its per-million-token price and context window, and per-job cost is reported exactly. Open-weight models can be dramatically cheaper — a typical job on DeepSeek V4 Flash costs cents, not dollars.
+
+You can also tune `reasoning_effort` and toggle the adversarial second pass per instance. See the [Settings Reference](./docs/settings.md).
 
 ## Documentation
 
