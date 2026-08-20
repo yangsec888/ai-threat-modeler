@@ -233,6 +233,6 @@ test.describe('Settings — LLM Provider model selection (v2.0.1)', () => {
     await page.getByRole('button', { name: 'Settings' }).click()
 
     await expect(page.getByLabel(/Threat Modeler Max Turns/i)).toBeVisible()
-    await expect(page.getByLabel(/Enable adversarial 2nd pass/i)).toBeChecked()
+    await expect(page.getByLabel(/Adversarial 2nd pass/i)).toBeChecked()
   })
 })

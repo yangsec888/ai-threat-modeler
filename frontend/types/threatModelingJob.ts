@@ -16,6 +16,9 @@ export interface ThreatModelingJob {
   repoPath: string
   query: string | null
   status: 'pending' | 'processing' | 'completed' | 'failed'
+  // Sub-status within 'processing' (e.g. 'refining' during the adversarial
+  // second pass). Null/undefined when no distinct phase applies.
+  phase?: string | null
   errorMessage: string | null
   repoName?: string | null
   gitBranch?: string | null

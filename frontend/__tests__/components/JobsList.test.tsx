@@ -106,6 +106,47 @@ describe('<JobsList />', () => {
     )
   })
 
+  it('shows a generic "Processing" label when a processing job has no phase', () => {
+    const processingJob: ThreatModelingJob = {
+      ...pendingJob,
+      id: 'job-processing-1',
+      status: 'processing',
+    }
+    render(
+      <JobsList
+        jobs={[processingJob]}
+        isAuditor={false}
+        onPreview={jest.fn()}
+        onDownloadJson={jest.fn()}
+        onDeleteJob={jest.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Processing')).toBeInTheDocument()
+    expect(screen.queryByText('Refining findings')).not.toBeInTheDocument()
+  })
+
+  it('shows "Refining findings" during the adversarial second pass', () => {
+    const refiningJob: ThreatModelingJob = {
+      ...pendingJob,
+      id: 'job-refining-1',
+      status: 'processing',
+      phase: 'refining',
+    }
+    render(
+      <JobsList
+        jobs={[refiningJob]}
+        isAuditor={false}
+        onPreview={jest.fn()}
+        onDownloadJson={jest.fn()}
+        onDeleteJob={jest.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Refining findings')).toBeInTheDocument()
+    expect(screen.queryByText('Processing')).not.toBeInTheDocument()
+  })
+
   it('Download JSON button onClick invokes onDownloadJson', () => {
     const onDownloadJson = jest.fn()
     render(

@@ -12,7 +12,7 @@ import archiver from 'archiver';
 import multer from 'multer';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { requireJobScheduling } from '../middleware/permissions';
-import { ThreatModelingJobModel } from '../models/threatModelingJob';
+import { ThreatModelingJobModel, JobPhase } from '../models/threatModelingJob';
 import { SettingsModel } from '../models/settings';
 import db from '../db/database';
 import logger from '../utils/logger';
@@ -43,6 +43,18 @@ const router = Router();
 
 // Base directory name for reports (relative to process.cwd())
 const REPORTS_DIR_NAME = 'threat-modeling-reports';
+
+// Wall-clock budget for the optional adversarial second pass. It only refines
+// the first-pass report (filters false positives), so it must never hold the
+// whole job hostage: slow reasoning models (e.g. Kimi) on a large first-pass
+// report can otherwise stall for tens of minutes behind the agent's own
+// per-request timeout + retries. On expiry we abort the pass and ship the
+// first-pass report. Override with THREAT_ADVERSARY_TIMEOUT_MS (milliseconds).
+const DEFAULT_THREAT_ADVERSARY_TIMEOUT_MS = 5 * 60 * 1000;
+const THREAT_ADVERSARY_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.THREAT_ADVERSARY_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_THREAT_ADVERSARY_TIMEOUT_MS;
+})();
 
 /**
  * Resolve a report path to an absolute path
@@ -730,6 +742,33 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
       const adversaryOutputPath = path.join(workDir, adversaryOutputName);
       logger.info(`🔍 Running threat adversary second pass (input: ${reportJsonPath})`);
 
+      // Surface a distinct phase so the UI shows "Refining findings" instead of
+      // a generic "Processing" that looks stalled during this slow pass.
+      try {
+        ThreatModelingJobModel.updatePhase(jobId, JobPhase.Refining);
+      } catch {
+        // job may have been deleted; phase is best-effort
+      }
+
+      // The adversary pass runs under its own abort controller so a timeout can
+      // cancel *only* this pass (fall back to the first-pass report) without
+      // marking the whole job cancelled. A user cancel on the job controller
+      // still propagates here, and the post-pass checkCancellation() below turns
+      // that into a real cancellation.
+      const adversaryAbort = new AbortController();
+      const propagateJobAbort = () => adversaryAbort.abort();
+      abortController.signal.addEventListener('abort', propagateJobAbort);
+      let adversaryTimedOut = false;
+      const adversaryTimeout = setTimeout(() => {
+        adversaryTimedOut = true;
+        logger.warn(
+          `⏱️  Threat adversary pass exceeded ${Math.round(
+            THREAT_ADVERSARY_TIMEOUT_MS / 1000,
+          )}s; aborting and keeping first-pass report`,
+        );
+        adversaryAbort.abort();
+      }, THREAT_ADVERSARY_TIMEOUT_MS);
+
       try {
         const advRun = await runAgentCli({
           agentRunPath,
@@ -739,7 +778,7 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
           providerConfig,
           contextText,
           jobId,
-          abortController,
+          abortController: adversaryAbort,
           extraArgs: [
             '--adversarial-context',
             reportJsonPath,
@@ -749,7 +788,23 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
         });
         capturedOutput += advRun.capturedOutput;
 
-        if (fs.existsSync(adversaryOutputPath)) {
+        if (adversaryTimedOut) {
+          logger.warn(
+            `⚠️  Threat adversary pass timed out after ${Math.round(
+              THREAT_ADVERSARY_TIMEOUT_MS / 1000,
+            )}s; keeping first-pass report`,
+          );
+          try {
+            ThreatModelingJobModel.updateErrorMessage(
+              jobId,
+              `Adversary pass timed out after ${Math.round(
+                THREAT_ADVERSARY_TIMEOUT_MS / 1000,
+              )}s (first-pass report retained)`,
+            );
+          } catch {
+            // job may have been deleted
+          }
+        } else if (fs.existsSync(adversaryOutputPath)) {
           const advRaw = fs.readFileSync(adversaryOutputPath, 'utf-8');
           const advData = JSON.parse(advRaw) as {
             threat_model_report?: {
@@ -788,6 +843,14 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
           );
         } catch {
           // job may have been deleted
+        }
+      } finally {
+        clearTimeout(adversaryTimeout);
+        abortController.signal.removeEventListener('abort', propagateJobAbort);
+        try {
+          ThreatModelingJobModel.updatePhase(jobId, null);
+        } catch {
+          // job may have been deleted; phase is best-effort
         }
       }
     }
@@ -933,6 +996,7 @@ router.get('/jobs', authenticateToken, (req: AuthRequest, res: Response) => {
           repoPath: job.repo_path,
           query: job.query,
           status: job.status,
+          phase: job.phase,
           reportPath: job.report_path, // Keep for backward compatibility
           dataFlowDiagramPath: job.data_flow_diagram_path,
           threatModelPath: job.threat_model_path,
@@ -965,6 +1029,7 @@ router.get('/jobs', authenticateToken, (req: AuthRequest, res: Response) => {
           repoPath: job.repo_path,
           query: job.query,
           status: job.status,
+          phase: job.phase,
           reportPath: job.report_path, // Keep for backward compatibility
           dataFlowDiagramPath: job.data_flow_diagram_path,
           threatModelPath: job.threat_model_path,
@@ -1072,6 +1137,7 @@ router.get('/jobs/:id', authenticateToken, (req: AuthRequest, res: Response) => 
         repoPath: job.repo_path,
         query: job.query,
         status: job.status,
+        phase: job.phase,
         errorMessage: job.error_message,
         repoName: job.repo_name,
         gitBranch: job.git_branch,

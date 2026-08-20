@@ -72,12 +72,14 @@ jest.mock('../../models/threatModelingJob', () => ({
     findAllWithUsers: jest.fn(),
     findById: jest.fn(),
     updateStatus: jest.fn(),
+    updatePhase: jest.fn(),
     updateReports: jest.fn(),
     updateErrorMessage: jest.fn(),
     updateMetadata: jest.fn(),
     updateExecutionMetrics: jest.fn(),
     delete: jest.fn(),
   },
+  JobPhase: { Refining: 'refining' },
 }));
 
 // Mock child_process.spawn for agent-run CLI execution

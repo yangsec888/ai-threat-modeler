@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-20
+
+### Added
+
+- **The adversarial second pass is now bounded by a wall-clock timeout.** It only refines the first-pass report (filtering ungrounded threats), so it can no longer hold a job hostage: a slow reasoning model (e.g. Kimi) on a large first-pass report used to stall for tens of minutes behind the agent's own per-request timeout and retries. The pass is capped at **5 minutes** (override with `THREAT_ADVERSARY_TIMEOUT_MS`), after which it is aborted and the job ships the first-pass report. The timeout uses a dedicated abort controller, so it never marks the job cancelled and a real user cancellation still propagates.
+- **Jobs surface a distinct `refining` phase during the adversarial pass.** A new nullable `phase` column is set to `refining` while the second pass runs and cleared on completion, and it is exposed on all job endpoints. The dashboard shows **"Refining findings"** instead of a generic "Processing" so a long second pass no longer looks like a stalled job.
+
+### Changed
+
+- **The "Adversarial 2nd pass" admin toggle is now a prominent, self-explanatory control** (highlighted panel, shield icon, On/Off state, and a switch) with copy that states it adds latency and cost and falls back to the first-pass report after the 5-minute cap. The underlying setting (`threat_adversary_enabled`) is unchanged.
+- **Root, backend, and frontend package versions bumped to `3.1.0`.**
+
 ## [3.0.2] - 2026-08-20
 
 ### Fixed

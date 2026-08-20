@@ -174,6 +174,10 @@ try {
     db.exec(`ALTER TABLE threat_modeling_jobs ADD COLUMN uploaded_zip_path TEXT`);
     logger.info('✅ Added uploaded_zip_path column to threat_modeling_jobs table');
   }
+  if (!columnNames.includes('phase')) {
+    db.exec(`ALTER TABLE threat_modeling_jobs ADD COLUMN phase TEXT`);
+    logger.info('✅ Added phase column to threat_modeling_jobs table');
+  }
 } catch (error: unknown) {
   const message = error instanceof Error ? error.message : 'Unknown error occurred';
   logger.warn('Migration warning', { error: message });
@@ -487,6 +491,9 @@ export interface ThreatModelingJob {
   repo_path: string;
   query: string | null;
   status: 'pending' | 'processing' | 'completed' | 'failed';
+  // Sub-status within 'processing' (e.g. 'refining' during the adversarial
+  // second pass). Null when no distinct phase applies.
+  phase: string | null;
   report_path: string | null;
   data_flow_diagram_path: string | null;
   threat_model_path: string | null;

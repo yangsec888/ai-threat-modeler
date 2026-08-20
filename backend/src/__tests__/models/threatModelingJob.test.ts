@@ -10,7 +10,7 @@ jest.mock('uuid', () => ({
   v4: jest.fn(() => `test-uuid-v4-${++uuidCounter}`),
 }));
 
-import { ThreatModelingJobModel } from '../../models/threatModelingJob';
+import { ThreatModelingJobModel, JobPhase } from '../../models/threatModelingJob';
 import { UserModel } from '../../models/user';
 import db from '../../db/database';
 
@@ -199,6 +199,41 @@ describe('ThreatModelingJobModel', () => {
       
       const updatedJob2 = ThreatModelingJobModel.updateStatus(job.id, 'processing');
       expect(updatedJob2.completed_at).toBeNull();
+    });
+  });
+
+  describe('updatePhase', () => {
+    it('should set the processing sub-phase without changing status', () => {
+      const job = ThreatModelingJobModel.create(testUserId, '/path/to/repo', 'Test query');
+      ThreatModelingJobModel.updateStatus(job.id, 'processing');
+
+      ThreatModelingJobModel.updatePhase(job.id, JobPhase.Refining);
+
+      const refreshed = ThreatModelingJobModel.findById(job.id);
+      expect(refreshed.phase).toBe('refining');
+      expect(refreshed.status).toBe('processing');
+    });
+
+    it('should clear the phase when passed null', () => {
+      const job = ThreatModelingJobModel.create(testUserId, '/path/to/repo', 'Test query');
+      ThreatModelingJobModel.updatePhase(job.id, JobPhase.Refining);
+
+      ThreatModelingJobModel.updatePhase(job.id, null);
+
+      expect(ThreatModelingJobModel.findById(job.id).phase).toBeNull();
+    });
+
+    it('should clear a lingering phase when the job reaches a terminal state', () => {
+      const job = ThreatModelingJobModel.create(testUserId, '/path/to/repo', 'Test query');
+      ThreatModelingJobModel.updatePhase(job.id, JobPhase.Refining);
+
+      const completed = ThreatModelingJobModel.updateStatus(job.id, 'completed');
+      expect(completed.phase).toBeNull();
+
+      const job2 = ThreatModelingJobModel.create(testUserId, '/path/to/repo', 'Test query');
+      ThreatModelingJobModel.updatePhase(job2.id, JobPhase.Refining);
+      const failed = ThreatModelingJobModel.updateStatus(job2.id, 'failed', null, 'boom');
+      expect(failed.phase).toBeNull();
     });
   });
 

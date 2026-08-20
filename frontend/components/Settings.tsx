@@ -1054,17 +1054,56 @@ export function Settings() {
                 Agent tool-use budget for threat modeling (and adversary pass when enabled). Default 100.
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                id="threat-adversary-enabled"
-                type="checkbox"
-                checked={threatAdversaryEnabled}
-                onChange={(e) => setThreatAdversaryEnabled(e.target.checked)}
-                className="h-4 w-4 rounded border-input"
-              />
-              <label htmlFor="threat-adversary-enabled" className="text-sm font-medium">
-                Enable adversarial 2nd pass (filters ungrounded threats)
-              </label>
+            <div
+              className={`rounded-lg border p-4 transition-colors ${
+                threatAdversaryEnabled ? 'border-blue-300 bg-blue-50/70' : 'border-input bg-muted/30'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <ShieldCheck
+                    className={`h-5 w-5 mt-0.5 shrink-0 ${
+                      threatAdversaryEnabled ? 'text-blue-600' : 'text-muted-foreground'
+                    }`}
+                  />
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="threat-adversary-enabled"
+                      className="text-sm font-semibold cursor-pointer"
+                    >
+                      Adversarial 2nd pass{' '}
+                      <span
+                        className={`ml-1 align-middle rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          threatAdversaryEnabled
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        {threatAdversaryEnabled ? 'On' : 'Off'}
+                      </span>
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      Runs a second review that filters out ungrounded or speculative threats for a
+                      higher-signal report. Adds latency and cost, so it&apos;s capped at 5 minutes —
+                      if it runs longer, the job falls back to the first-pass report.
+                    </p>
+                  </div>
+                </div>
+                <label
+                  htmlFor="threat-adversary-enabled"
+                  className="relative inline-flex shrink-0 cursor-pointer items-center"
+                >
+                  <input
+                    id="threat-adversary-enabled"
+                    type="checkbox"
+                    checked={threatAdversaryEnabled}
+                    onChange={(e) => setThreatAdversaryEnabled(e.target.checked)}
+                    className="peer sr-only"
+                  />
+                  <span className="h-6 w-11 rounded-full bg-input transition-colors peer-checked:bg-blue-600 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-400 peer-focus-visible:ring-offset-2" />
+                  <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
+                </label>
+              </div>
             </div>
           </div>
         </CardContent>

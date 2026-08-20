@@ -12,6 +12,17 @@ import {
   type ContextFields,
 } from '../types/contextFields';
 
+/**
+ * Sub-status values for a job while its top-level `status` is 'processing'.
+ * Surfaced to the UI so a long adversarial second pass isn't mistaken for a
+ * stalled job.
+ */
+export const JobPhase = {
+  Refining: 'refining',
+} as const;
+
+export type JobPhaseValue = (typeof JobPhase)[keyof typeof JobPhase];
+
 export interface ThreatModelingJobSourceMeta {
   sourceType?: ThreatModelingJobSourceType | null;
   sourceUrl?: string | null;
@@ -183,6 +194,8 @@ export class ThreatModelingJobModel {
 
     if (status === 'completed' || status === 'failed') {
       updates.push('completed_at = CURRENT_TIMESTAMP');
+      // A terminal job has no in-flight phase; clear any stale sub-status.
+      updates.push('phase = NULL');
     }
 
     const stmt = db.prepare(`
@@ -225,6 +238,20 @@ export class ThreatModelingJobModel {
     `);
     stmt.run(repoName, gitBranch, gitCommit, id);
     return this.findById(id);
+  }
+
+  /**
+   * Set (or clear, with `null`) the processing sub-phase without touching the
+   * top-level status. Best-effort: swallows "job not found" so a phase update
+   * for a deleted/cancelled job never breaks the run.
+   */
+  static updatePhase(id: string, phase: JobPhaseValue | null): void {
+    const stmt = db.prepare(`
+      UPDATE threat_modeling_jobs
+      SET phase = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+    stmt.run(phase, id);
   }
 
   static updateExecutionMetrics(id: string, executionDuration: number | null, apiCost: string | null): ThreatModelingJobDto {

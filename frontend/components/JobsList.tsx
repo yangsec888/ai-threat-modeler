@@ -49,6 +49,13 @@ function getStatusIcon(status: string) {
   }
 }
 
+function getStatusLabel(job: ThreatModelingJob) {
+  if (job.status === 'processing' && job.phase === 'refining') {
+    return 'Refining findings'
+  }
+  return job.status.charAt(0).toUpperCase() + job.status.slice(1)
+}
+
 function getStatusBadge(status: string) {
   const baseClasses = 'px-2 py-1 rounded-full text-xs font-medium'
   switch (status) {
@@ -101,7 +108,7 @@ export const JobsList = ({
               <div className="flex items-center gap-2 mb-2">
                 {getStatusIcon(job.status)}
                 <span className={getStatusBadge(job.status)}>
-                  {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
+                  {getStatusLabel(job)}
                 </span>
                 <span className="text-sm text-muted-foreground">
                   {formatDateWithTimezone(job.createdAt)}

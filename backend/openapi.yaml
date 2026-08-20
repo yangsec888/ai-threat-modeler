@@ -1704,6 +1704,15 @@ components:
           example: Perform threat modeling analysis
         status:
           $ref: '#/components/schemas/JobStatus'
+        phase:
+          type: string
+          nullable: true
+          enum:
+            - refining
+          description: |
+            Sub-status while `status` is `processing`. `refining` indicates the
+            adversarial second pass (false-positive filtering) is running. Null
+            when no distinct phase applies.
         reportPath:
           type: string
           nullable: true

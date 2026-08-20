@@ -214,7 +214,7 @@ describe('<Settings />', () => {
       render(<Settings />)
       await screen.findByLabelText('Claude Model')
       expect(screen.getByLabelText(/Threat Modeler Max Turns/i)).toBeInTheDocument()
-      expect(screen.getByLabelText(/Enable adversarial 2nd pass/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/Adversarial 2nd pass/i)).toBeInTheDocument()
     })
   })
 
