@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-08-20
+
+### Fixed
+
+- **DeepInfra threat-modeling jobs no longer intermittently complete with a duration and cost but no report.** `appsec-agent` 4.0.2 hardens structured-output parsing: open-weight models (DeepSeek, GLM) sometimes prepend prose and wrap the report in a ` ```json ` fenced block, which the old parser could not recover (a stray `{` in the prose defeated its brace-slice fallback), so a valid report was silently discarded. This surfaced on the adversarial second pass — the job kept the first-pass report but the failure was hidden. The parser now finds a fenced JSON block anywhere in the response, and the `threat_adversary` pass no longer swallows a dropped result silently.
+
+### Changed
+
+- **Bumped `appsec-agent` to `^4.0.2`** (from `^4.0.1`) in the root and backend packages.
+- **Root, backend, and frontend package versions bumped to `3.0.2`.**
+
 ## [3.0.1] - 2026-08-20
 
 ### Fixed
