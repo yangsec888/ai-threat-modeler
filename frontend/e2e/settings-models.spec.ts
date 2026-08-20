@@ -15,17 +15,17 @@ const openaiModels = [
   { id: 'gpt-4.1', label: 'gpt-4.1' },
   { id: 'o3', label: 'o3' },
 ]
-const kimiModels = [
-  { id: 'kimi-k2.6', label: 'kimi-k2.6' },
-  { id: 'kimi-k3', label: 'kimi-k3' },
+const deepinfraModels = [
+  { id: 'moonshotai/Kimi-K2.6', label: 'moonshotai/Kimi-K2.6', inputPricePerM: 0.75, outputPricePerM: 3.5, contextLength: 262144 },
+  { id: 'moonshotai/Kimi-K3', label: 'moonshotai/Kimi-K3', inputPricePerM: 2.85, outputPricePerM: 14.25, contextLength: 1000000 },
 ]
 
 async function stubSettingsPage(
   page: Page,
   opts: {
     openaiApiKey?: string | null
-    moonshotApiKey?: string | null
-    llmProvider?: 'claude' | 'codex' | 'moonshot'
+    deepinfraApiKey?: string | null
+    llmProvider?: 'claude' | 'codex' | 'deepinfra'
   } = {},
 ): Promise<{ getLastPut: () => Record<string, unknown> | null }> {
   let lastPutBody: Record<string, unknown> | null = null
@@ -58,12 +58,13 @@ async function stubSettingsPage(
     anthropic_base_url: 'https://api.anthropic.com',
     openai_api_key: opts.openaiApiKey ?? null,
     openai_base_url: 'https://api.openai.com/v1',
-    moonshot_api_key: opts.moonshotApiKey ?? null,
-    moonshot_base_url: 'https://api.moonshot.ai/v1',
+    deepinfra_api_key: opts.deepinfraApiKey ?? null,
+    deepinfra_base_url: 'https://api.deepinfra.com/v1/openai',
+    deepinfra_reasoning_effort: 'medium',
     llm_provider: opts.llmProvider ?? 'claude',
     claude_model: null as string | null,
     openai_model: 'gpt-4.1',
-    moonshot_model: 'kimi-k2.6',
+    deepinfra_model: 'moonshotai/Kimi-K2.6',
     claude_code_max_output_tokens: 32000,
     github_max_archive_size_mb: 50,
     threat_modeler_max_turns: 100,
@@ -100,17 +101,17 @@ async function stubSettingsPage(
     const url = route.request().url()
     const provider = url.includes('provider=codex')
       ? 'codex'
-      : url.includes('provider=moonshot')
-        ? 'moonshot'
+      : url.includes('provider=deepinfra')
+        ? 'deepinfra'
         : 'claude'
-    const modelsByProvider = { claude: claudeModels, codex: openaiModels, moonshot: kimiModels }
+    const modelsByProvider = { claude: claudeModels, codex: openaiModels, deepinfra: deepinfraModels }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         status: 'success',
         provider,
-        models: modelsByProvider[provider as 'claude' | 'codex' | 'moonshot'],
+        models: modelsByProvider[provider as 'claude' | 'codex' | 'deepinfra'],
       }),
     })
   })
@@ -189,29 +190,30 @@ test.describe('Settings — LLM Provider model selection (v2.0.1)', () => {
     await expect(page.getByTestId('openai-key-status-missing')).toBeVisible()
   })
 
-  test('switching to Moonshot reveals its section and populates the Kimi model dropdown', async ({ page }) => {
+  test('switching to DeepInfra reveals its section and populates the model dropdown', async ({ page }) => {
     await stubSettingsPage(page)
     await page.goto('/')
     await page.getByRole('button', { name: 'Settings' }).click()
 
     await expect(page.locator('#claude-model')).toBeVisible()
 
-    await page.locator('#llm-provider').selectOption('moonshot')
+    await page.locator('#llm-provider').selectOption('deepinfra')
 
-    const moonshotSelect = page.locator('#moonshot-model')
-    await expect(moonshotSelect).toContainText('kimi-k3')
+    const deepinfraSelect = page.locator('#deepinfra-model')
+    await expect(deepinfraSelect).toContainText('moonshotai/Kimi-K3')
+    await expect(page.locator('#deepinfra-reasoning-effort')).toBeVisible()
     await expect(page.locator('#claude-model')).toHaveCount(0)
     await expect(page.locator('#openai-model')).toHaveCount(0)
   })
 
-  test('Moonshot API Key shows its configured status and Test validates the saved key', async ({ page }) => {
-    await stubSettingsPage(page, { moonshotApiKey: '***ENCRYPTED***', llmProvider: 'moonshot' })
+  test('DeepInfra API Key shows its configured status and Test validates the saved key', async ({ page }) => {
+    await stubSettingsPage(page, { deepinfraApiKey: '***ENCRYPTED***', llmProvider: 'deepinfra' })
     await page.goto('/')
     await page.getByRole('button', { name: 'Settings' }).click()
 
-    await expect(page.getByTestId('moonshot-key-status-configured')).toBeVisible()
-    await page.getByRole('button', { name: 'Test Moonshot API key' }).click()
-    await expect(page.getByText(/Saved Moonshot API key is valid/i)).toBeVisible()
+    await expect(page.getByTestId('deepinfra-key-status-configured')).toBeVisible()
+    await page.getByRole('button', { name: 'Test DeepInfra API key' }).click()
+    await expect(page.getByText(/Saved DeepInfra API key is valid/i)).toBeVisible()
   })
 
   test('Reset to Defaults shows a confirmation toast', async ({ page }) => {

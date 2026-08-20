@@ -80,7 +80,12 @@ export async function runContextExtractor(
     const { args: providerArgs, env } = buildAgentRunInvocation(
       providerConfig,
       [],
-      { modelOverride: CONTEXT_EXTRACTOR_MODEL[providerConfig.provider] },
+      {
+        modelOverride: CONTEXT_EXTRACTOR_MODEL[providerConfig.provider],
+        // Context extraction is a tool-less JSON transform; disable reasoning
+        // to keep it cheap and fast (only consumed by the DeepInfra provider).
+        reasoningEffortOverride: 'none',
+      },
     );
     const agentRunCommand = [...roleArgs, ...providerArgs];
 

@@ -12,6 +12,7 @@ describe('buildAgentRunInvocation', () => {
     baseUrl: 'https://api.anthropic.com',
     model: 'opus',
     claudeCodeMaxOutputTokens: 32000,
+    reasoningEffort: null,
   };
 
   const codexConfig: AgentProviderConfig = {
@@ -20,14 +21,16 @@ describe('buildAgentRunInvocation', () => {
     baseUrl: 'https://api.openai.com/v1',
     model: 'gpt-4.1',
     claudeCodeMaxOutputTokens: null,
+    reasoningEffort: null,
   };
 
-  const moonshotConfig: AgentProviderConfig = {
-    provider: 'moonshot',
-    apiKey: 'sk-moonshot-test',
-    baseUrl: 'https://api.moonshot.ai/v1',
-    model: 'kimi-k2.6',
+  const deepinfraConfig: AgentProviderConfig = {
+    provider: 'deepinfra',
+    apiKey: 'sk-deepinfra-test',
+    baseUrl: 'https://api.deepinfra.com/v1/openai',
+    model: 'moonshotai/Kimi-K3',
     claudeCodeMaxOutputTokens: null,
+    reasoningEffort: 'medium',
   };
 
   it('builds Claude argv and env', () => {
@@ -56,38 +59,58 @@ describe('buildAgentRunInvocation', () => {
     expect(args).not.toContain('-k');
   });
 
-  it('builds Moonshot argv and env without Anthropic flags', () => {
-    const { args, env } = buildAgentRunInvocation(moonshotConfig, ['-r', 'threat_modeler']);
+  it('builds DeepInfra argv and env without Anthropic flags', () => {
+    const { args, env } = buildAgentRunInvocation(deepinfraConfig, ['-r', 'threat_modeler']);
     expect(args).toEqual([
       '-r', 'threat_modeler',
-      '--provider', 'moonshot',
-      '-m', 'kimi-k2.6',
+      '--provider', 'deepinfra',
+      '-m', 'moonshotai/Kimi-K3',
+      '--reasoning-effort', 'medium',
     ]);
-    expect(env.AGENT_PROVIDER).toBe('moonshot');
-    expect(env.MOONSHOT_API_KEY).toBe('sk-moonshot-test');
-    expect(env.MOONSHOT_BASE_URL).toBe('https://api.moonshot.ai/v1');
+    expect(env.AGENT_PROVIDER).toBe('deepinfra');
+    expect(env.DEEPINFRA_API_KEY).toBe('sk-deepinfra-test');
+    expect(env.DEEPINFRA_BASE_URL).toBe('https://api.deepinfra.com/v1/openai');
     expect(args).not.toContain('-k');
     expect(args).not.toContain('-u');
   });
 
-  it('falls back to kimi-k2.6 when the Moonshot model is null', () => {
+  it('omits --reasoning-effort when none is configured', () => {
     const { args } = buildAgentRunInvocation(
-      { ...moonshotConfig, model: null },
+      { ...deepinfraConfig, reasoningEffort: null },
+      ['-r', 'threat_modeler'],
+    );
+    expect(args).not.toContain('--reasoning-effort');
+  });
+
+  it('falls back to moonshotai/Kimi-K2.6 when the DeepInfra model is null', () => {
+    const { args } = buildAgentRunInvocation(
+      { ...deepinfraConfig, model: null },
       ['-r', 'threat_modeler'],
     );
     const modelIdx = args.indexOf('-m');
-    expect(args[modelIdx + 1]).toBe('kimi-k2.6');
+    expect(args[modelIdx + 1]).toBe('moonshotai/Kimi-K2.6');
   });
 
-  it('uses modelOverride for context extractor cheap models', () => {
+  it('uses modelOverride and reasoningEffortOverride for context extractor', () => {
     expect(CONTEXT_EXTRACTOR_MODEL.claude).toBe('haiku');
     expect(CONTEXT_EXTRACTOR_MODEL.codex).toBe('gpt-4.1-mini');
-    expect(CONTEXT_EXTRACTOR_MODEL.moonshot).toBe('kimi-k2.6');
+    expect(CONTEXT_EXTRACTOR_MODEL.deepinfra).toBe('deepseek-ai/DeepSeek-V4-Flash');
 
     const { args } = buildAgentRunInvocation(codexConfig, ['-r', 'context_extractor'], {
       modelOverride: CONTEXT_EXTRACTOR_MODEL.codex,
     });
     const modelIdx = args.indexOf('-m');
     expect(args[modelIdx + 1]).toBe('gpt-4.1-mini');
+  });
+
+  it('passes reasoningEffortOverride to the DeepInfra provider', () => {
+    const { args } = buildAgentRunInvocation(deepinfraConfig, ['-r', 'context_extractor'], {
+      modelOverride: CONTEXT_EXTRACTOR_MODEL.deepinfra,
+      reasoningEffortOverride: 'none',
+    });
+    const modelIdx = args.indexOf('-m');
+    expect(args[modelIdx + 1]).toBe('deepseek-ai/DeepSeek-V4-Flash');
+    const effortIdx = args.indexOf('--reasoning-effort');
+    expect(args[effortIdx + 1]).toBe('none');
   });
 });

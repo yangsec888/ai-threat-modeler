@@ -292,53 +292,55 @@ describe('<Settings />', () => {
     })
   })
 
-  describe('Moonshot API key status and Test button', () => {
-    const moonshotSettings = (moonshotKey: string | null) => ({
+  describe('DeepInfra API key status and Test button', () => {
+    const deepinfraSettings = (deepinfraKey: string | null) => ({
       settings: {
         encryption_key_configured: true,
         anthropic_api_key: null,
         anthropic_base_url: 'https://api.anthropic.com',
         openai_api_key: null,
         openai_base_url: 'https://api.openai.com/v1',
-        moonshot_api_key: moonshotKey,
-        moonshot_base_url: 'https://api.moonshot.ai/v1',
-        llm_provider: 'moonshot',
+        deepinfra_api_key: deepinfraKey,
+        deepinfra_base_url: 'https://api.deepinfra.com/v1/openai',
+        deepinfra_reasoning_effort: 'medium',
+        llm_provider: 'deepinfra',
         claude_model: null,
         openai_model: 'gpt-4.1',
-        moonshot_model: 'kimi-k2.6',
+        deepinfra_model: 'moonshotai/Kimi-K2.6',
         claude_code_max_output_tokens: 32000,
         github_max_archive_size_mb: 50,
         updated_at: 't',
       },
     })
 
-    it('reveals only the Moonshot section when moonshot is the active provider', async () => {
-      ;(api.getSettings as jest.Mock).mockResolvedValue(moonshotSettings(null))
+    it('reveals only the DeepInfra section when deepinfra is the active provider', async () => {
+      ;(api.getSettings as jest.Mock).mockResolvedValue(deepinfraSettings(null))
       render(<Settings />)
-      expect(await screen.findByLabelText('Moonshot Model')).toBeInTheDocument()
+      expect(await screen.findByLabelText('DeepInfra Model')).toBeInTheDocument()
+      expect(screen.getByLabelText('Reasoning Effort')).toBeInTheDocument()
       expect(screen.queryByLabelText('Claude Model')).not.toBeInTheDocument()
       expect(screen.queryByLabelText('OpenAI Model')).not.toBeInTheDocument()
     })
 
     it('shows the configured status badge when a key is saved', async () => {
-      ;(api.getSettings as jest.Mock).mockResolvedValue(moonshotSettings('***ENCRYPTED***'))
+      ;(api.getSettings as jest.Mock).mockResolvedValue(deepinfraSettings('***ENCRYPTED***'))
       render(<Settings />)
-      expect(await screen.findByTestId('moonshot-key-status-configured')).toBeInTheDocument()
-      expect(screen.queryByTestId('moonshot-key-status-missing')).not.toBeInTheDocument()
+      expect(await screen.findByTestId('deepinfra-key-status-configured')).toBeInTheDocument()
+      expect(screen.queryByTestId('deepinfra-key-status-missing')).not.toBeInTheDocument()
     })
 
-    it('Test validates the entered key against the moonshot provider', async () => {
-      ;(api.getSettings as jest.Mock).mockResolvedValue(moonshotSettings(null))
+    it('Test validates the entered key against the deepinfra provider', async () => {
+      ;(api.getSettings as jest.Mock).mockResolvedValue(deepinfraSettings(null))
       ;(api.validateApiKey as jest.Mock).mockResolvedValue({ valid: true, message: 'Key OK' })
       const user = userEvent.setup()
       render(<Settings />)
-      await screen.findByTestId('moonshot-key-status-missing')
+      await screen.findByTestId('deepinfra-key-status-missing')
 
-      await user.type(screen.getByLabelText('Moonshot API Key'), 'sk-moonshot-123')
-      await user.click(screen.getByRole('button', { name: 'Test Moonshot API key' }))
+      await user.type(screen.getByLabelText('DeepInfra API Key'), 'sk-deepinfra-123')
+      await user.click(screen.getByRole('button', { name: 'Test DeepInfra API key' }))
 
       await waitFor(() =>
-        expect(api.validateApiKey).toHaveBeenCalledWith('sk-moonshot-123', 'https://api.moonshot.ai/v1', 'moonshot'),
+        expect(api.validateApiKey).toHaveBeenCalledWith('sk-deepinfra-123', 'https://api.deepinfra.com/v1/openai', 'deepinfra'),
       )
       expect(await screen.findByText(/Key OK/i)).toBeInTheDocument()
     })

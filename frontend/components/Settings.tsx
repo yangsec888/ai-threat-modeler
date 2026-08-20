@@ -29,12 +29,44 @@ interface GitHubTokenStatus {
 interface ModelOption {
   id: string
   label: string
+  inputPricePerM?: number
+  outputPricePerM?: number
+  contextLength?: number
 }
 
-type LlmProvider = 'claude' | 'codex' | 'moonshot'
+type LlmProvider = 'claude' | 'codex' | 'deepinfra'
+
+type ReasoningEffort = 'none' | 'low' | 'medium' | 'high'
 
 const normalizeProvider = (raw: unknown): LlmProvider =>
-  raw === 'codex' || raw === 'moonshot' ? raw : 'claude'
+  raw === 'codex' || raw === 'deepinfra' ? raw : 'claude'
+
+const normalizeReasoningEffort = (raw: unknown): ReasoningEffort =>
+  raw === 'none' || raw === 'low' || raw === 'high' ? raw : 'medium'
+
+/** Compact context-window label, e.g. 1000000 -> "1M", 262144 -> "262K". */
+const formatContextLength = (tokens: number): string => {
+  if (tokens >= 1_000_000) {
+    const millions = tokens / 1_000_000
+    return `${Number.isInteger(millions) ? millions : millions.toFixed(1)}M`
+  }
+  if (tokens >= 1_000) {
+    return `${Math.round(tokens / 1_000)}K`
+  }
+  return `${tokens}`
+}
+
+/** Dropdown label with price and context, e.g. "moonshotai/Kimi-K3 — $2.85/$14.25 per M, 1M ctx". */
+const formatDeepInfraModelLabel = (m: ModelOption): string => {
+  const parts: string[] = []
+  if (typeof m.inputPricePerM === 'number' && typeof m.outputPricePerM === 'number') {
+    parts.push(`$${m.inputPricePerM}/$${m.outputPricePerM} per M`)
+  }
+  if (typeof m.contextLength === 'number') {
+    parts.push(`${formatContextLength(m.contextLength)} ctx`)
+  }
+  return parts.length > 0 ? `${m.id} — ${parts.join(', ')}` : m.label
+}
 
 export function Settings() {
   const { user, isAuthenticated } = useAuth()
@@ -49,19 +81,20 @@ export function Settings() {
   const [openaiKeyConfigured, setOpenaiKeyConfigured] = useState(false)
   const [testingOpenaiKey, setTestingOpenaiKey] = useState(false)
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState('https://api.openai.com/v1')
-  const [moonshotApiKey, setMoonshotApiKey] = useState('')
-  const [moonshotKeyConfigured, setMoonshotKeyConfigured] = useState(false)
-  const [testingMoonshotKey, setTestingMoonshotKey] = useState(false)
-  const [moonshotBaseUrl, setMoonshotBaseUrl] = useState('https://api.moonshot.ai/v1')
+  const [deepinfraApiKey, setDeepinfraApiKey] = useState('')
+  const [deepinfraKeyConfigured, setDeepinfraKeyConfigured] = useState(false)
+  const [testingDeepinfraKey, setTestingDeepinfraKey] = useState(false)
+  const [deepinfraBaseUrl, setDeepinfraBaseUrl] = useState('https://api.deepinfra.com/v1/openai')
+  const [deepinfraReasoningEffort, setDeepinfraReasoningEffort] = useState<ReasoningEffort>('medium')
   const [claudeModel, setClaudeModel] = useState('')
   const [openaiModel, setOpenaiModel] = useState('gpt-4.1')
-  const [moonshotModel, setMoonshotModel] = useState('kimi-k2.6')
+  const [deepinfraModel, setDeepinfraModel] = useState('moonshotai/Kimi-K2.6')
   const [claudeModels, setClaudeModels] = useState<ModelOption[]>([])
   const [openaiModels, setOpenaiModels] = useState<ModelOption[]>([])
-  const [moonshotModels, setMoonshotModels] = useState<ModelOption[]>([])
+  const [deepinfraModels, setDeepinfraModels] = useState<ModelOption[]>([])
   const [loadingClaudeModels, setLoadingClaudeModels] = useState(false)
   const [loadingOpenaiModels, setLoadingOpenaiModels] = useState(false)
-  const [loadingMoonshotModels, setLoadingMoonshotModels] = useState(false)
+  const [loadingDeepinfraModels, setLoadingDeepinfraModels] = useState(false)
   const [claudeCodeMaxOutputTokens, setClaudeCodeMaxOutputTokens] = useState<number | null>(32000)
   const [githubMaxArchiveSizeMb, setGithubMaxArchiveSizeMb] = useState<number>(50)
   const [threatModelerMaxTurns, setThreatModelerMaxTurns] = useState<number>(100)
@@ -102,18 +135,19 @@ export function Settings() {
         setAnthropicKeyConfigured(!!settings.anthropic_api_key)
         setOpenaiBaseUrl(settings.openai_base_url || 'https://api.openai.com/v1')
         setOpenaiKeyConfigured(!!settings.openai_api_key)
-        setMoonshotBaseUrl(settings.moonshot_base_url || 'https://api.moonshot.ai/v1')
-        setMoonshotKeyConfigured(!!settings.moonshot_api_key)
+        setDeepinfraBaseUrl(settings.deepinfra_base_url || 'https://api.deepinfra.com/v1/openai')
+        setDeepinfraKeyConfigured(!!settings.deepinfra_api_key)
+        setDeepinfraReasoningEffort(normalizeReasoningEffort(settings.deepinfra_reasoning_effort))
         setClaudeModel(settings.claude_model ?? '')
         setOpenaiModel(settings.openai_model || 'gpt-4.1')
-        setMoonshotModel(settings.moonshot_model || 'kimi-k2.6')
+        setDeepinfraModel(settings.deepinfra_model || 'moonshotai/Kimi-K2.6')
         setClaudeCodeMaxOutputTokens(settings.claude_code_max_output_tokens ?? 32000)
         setGithubMaxArchiveSizeMb(settings.github_max_archive_size_mb ?? 50)
         setThreatModelerMaxTurns(settings.threat_modeler_max_turns ?? 100)
         setThreatAdversaryEnabled(settings.threat_adversary_enabled ?? true)
         setAnthropicApiKey('')
         setOpenaiApiKey('')
-        setMoonshotApiKey('')
+        setDeepinfraApiKey('')
 
         const currentConfig = getConfig()
         setTimezone(currentConfig.timezone || 'UTC')
@@ -127,12 +161,12 @@ export function Settings() {
 
         // Best-effort: populate model dropdowns from each provider. Requires a
         // saved API key, so failures are expected and silently ignored here.
-        for (const provider of ['claude', 'codex', 'moonshot'] as const) {
+        for (const provider of ['claude', 'codex', 'deepinfra'] as const) {
           try {
             const modelsRes = await api.getModels(provider)
             if (provider === 'claude') setClaudeModels(modelsRes.models)
             else if (provider === 'codex') setOpenaiModels(modelsRes.models)
-            else setMoonshotModels(modelsRes.models)
+            else setDeepinfraModels(modelsRes.models)
           } catch (err) {
             console.warn(`Failed to load ${provider} models:`, err)
           }
@@ -152,12 +186,12 @@ export function Settings() {
   const loadModels = async (provider: LlmProvider, options?: { silent?: boolean }) => {
     if (provider === 'claude') setLoadingClaudeModels(true)
     else if (provider === 'codex') setLoadingOpenaiModels(true)
-    else setLoadingMoonshotModels(true)
+    else setLoadingDeepinfraModels(true)
     try {
       const res = await api.getModels(provider)
       if (provider === 'claude') setClaudeModels(res.models)
       else if (provider === 'codex') setOpenaiModels(res.models)
-      else setMoonshotModels(res.models)
+      else setDeepinfraModels(res.models)
     } catch (err: unknown) {
       if (!options?.silent) {
         showError(err instanceof Error ? err.message : 'Failed to load models')
@@ -165,7 +199,7 @@ export function Settings() {
     } finally {
       if (provider === 'claude') setLoadingClaudeModels(false)
       else if (provider === 'codex') setLoadingOpenaiModels(false)
-      else setLoadingMoonshotModels(false)
+      else setLoadingDeepinfraModels(false)
     }
   }
 
@@ -186,12 +220,13 @@ export function Settings() {
           anthropic_base_url?: string
           openai_api_key?: string
           openai_base_url?: string
-          moonshot_api_key?: string
-          moonshot_base_url?: string
+          deepinfra_api_key?: string
+          deepinfra_base_url?: string
           llm_provider?: LlmProvider
           claude_model?: string | null
           openai_model?: string
-          moonshot_model?: string
+          deepinfra_model?: string
+          deepinfra_reasoning_effort?: ReasoningEffort
           claude_code_max_output_tokens?: number | null
           github_max_archive_size_mb?: number
           threat_modeler_max_turns?: number
@@ -212,18 +247,19 @@ export function Settings() {
         if (openaiBaseUrl && openaiBaseUrl.trim().length > 0) {
           updates.openai_base_url = openaiBaseUrl
         }
-        if (moonshotApiKey && moonshotApiKey.trim().length > 0) {
-          updates.moonshot_api_key = moonshotApiKey
+        if (deepinfraApiKey && deepinfraApiKey.trim().length > 0) {
+          updates.deepinfra_api_key = deepinfraApiKey
         }
-        if (moonshotBaseUrl && moonshotBaseUrl.trim().length > 0) {
-          updates.moonshot_base_url = moonshotBaseUrl
+        if (deepinfraBaseUrl && deepinfraBaseUrl.trim().length > 0) {
+          updates.deepinfra_base_url = deepinfraBaseUrl
         }
+        updates.deepinfra_reasoning_effort = deepinfraReasoningEffort
         updates.claude_model = claudeModel.trim() ? claudeModel.trim() : null
         if (openaiModel && openaiModel.trim().length > 0) {
           updates.openai_model = openaiModel.trim()
         }
-        if (moonshotModel && moonshotModel.trim().length > 0) {
-          updates.moonshot_model = moonshotModel.trim()
+        if (deepinfraModel && deepinfraModel.trim().length > 0) {
+          updates.deepinfra_model = deepinfraModel.trim()
         }
         if (claudeCodeMaxOutputTokens !== undefined && claudeCodeMaxOutputTokens !== null) {
           updates.claude_code_max_output_tokens = claudeCodeMaxOutputTokens
@@ -278,22 +314,22 @@ export function Settings() {
           }
         }
 
-        if (updates.moonshot_api_key) {
+        if (updates.deepinfra_api_key) {
           setValidating(true)
           try {
             const validationResult = await api.validateApiKey(
-              updates.moonshot_api_key,
-              updates.moonshot_base_url || moonshotBaseUrl,
-              'moonshot',
+              updates.deepinfra_api_key,
+              updates.deepinfra_base_url || deepinfraBaseUrl,
+              'deepinfra',
             )
             if (validationResult.valid) {
-              success(validationResult.message || 'Moonshot API key is valid and working correctly')
+              success(validationResult.message || 'DeepInfra API key is valid and working correctly')
             } else {
-              showError(validationResult.error || 'Moonshot API key validation failed')
+              showError(validationResult.error || 'DeepInfra API key validation failed')
             }
           } catch (validationErr) {
             const errorMsg = validationErr instanceof Error ? validationErr.message : 'Failed to validate API key'
-            showError(`Moonshot API key validation error: ${errorMsg}`)
+            showError(`DeepInfra API key validation error: ${errorMsg}`)
           } finally {
             setValidating(false)
           }
@@ -325,22 +361,23 @@ export function Settings() {
         setAnthropicKeyConfigured(!!settings.anthropic_api_key)
         setOpenaiBaseUrl(settings.openai_base_url || 'https://api.openai.com/v1')
         setOpenaiKeyConfigured(!!settings.openai_api_key)
-        setMoonshotBaseUrl(settings.moonshot_base_url || 'https://api.moonshot.ai/v1')
-        setMoonshotKeyConfigured(!!settings.moonshot_api_key)
+        setDeepinfraBaseUrl(settings.deepinfra_base_url || 'https://api.deepinfra.com/v1/openai')
+        setDeepinfraKeyConfigured(!!settings.deepinfra_api_key)
+        setDeepinfraReasoningEffort(normalizeReasoningEffort(settings.deepinfra_reasoning_effort))
         setClaudeModel(settings.claude_model ?? '')
         setOpenaiModel(settings.openai_model || 'gpt-4.1')
-        setMoonshotModel(settings.moonshot_model || 'kimi-k2.6')
+        setDeepinfraModel(settings.deepinfra_model || 'moonshotai/Kimi-K2.6')
         setClaudeCodeMaxOutputTokens(settings.claude_code_max_output_tokens ?? 32000)
         setGithubMaxArchiveSizeMb(settings.github_max_archive_size_mb ?? 50)
         setThreatModelerMaxTurns(settings.threat_modeler_max_turns ?? 100)
         setThreatAdversaryEnabled(settings.threat_adversary_enabled ?? true)
         setAnthropicApiKey('')
         setOpenaiApiKey('')
-        setMoonshotApiKey('')
+        setDeepinfraApiKey('')
 
         void loadModels('claude', { silent: true })
         void loadModels('codex', { silent: true })
-        void loadModels('moonshot', { silent: true })
+        void loadModels('deepinfra', { silent: true })
       } else {
         updateConfig({
           anthropic: { apiKey: anthropicApiKey, baseUrl: anthropicBaseUrl },
@@ -433,28 +470,28 @@ export function Settings() {
     }
   }
 
-  const handleTestMoonshotKey = async () => {
-    setTestingMoonshotKey(true)
+  const handleTestDeepinfraKey = async () => {
+    setTestingDeepinfraKey(true)
     try {
-      const typedKey = moonshotApiKey.trim()
+      const typedKey = deepinfraApiKey.trim()
       if (typedKey.length > 0) {
-        const result = await api.validateApiKey(typedKey, moonshotBaseUrl || undefined, 'moonshot')
+        const result = await api.validateApiKey(typedKey, deepinfraBaseUrl || undefined, 'deepinfra')
         if (result.valid) {
-          success(result.message || 'Moonshot API key is valid and working correctly')
+          success(result.message || 'DeepInfra API key is valid and working correctly')
         } else {
-          showError(result.error || 'Moonshot API key validation failed')
+          showError(result.error || 'DeepInfra API key validation failed')
         }
-      } else if (moonshotKeyConfigured) {
+      } else if (deepinfraKeyConfigured) {
         // No new key typed: exercise the stored key by listing models.
-        await api.getModels('moonshot')
-        success('Saved Moonshot API key is valid and working correctly')
+        await api.getModels('deepinfra')
+        success('Saved DeepInfra API key is valid and working correctly')
       } else {
-        showError('Enter a Moonshot API key to test, or save one first')
+        showError('Enter a DeepInfra API key to test, or save one first')
       }
     } catch (err: unknown) {
-      showError(err instanceof Error ? err.message : 'Failed to test Moonshot API key')
+      showError(err instanceof Error ? err.message : 'Failed to test DeepInfra API key')
     } finally {
-      setTestingMoonshotKey(false)
+      setTestingDeepinfraKey(false)
     }
   }
 
@@ -656,7 +693,7 @@ export function Settings() {
             >
               <option value="claude">Anthropic Claude</option>
               <option value="codex">OpenAI (Codex)</option>
-              <option value="moonshot">Moonshot (Kimi)</option>
+              <option value="deepinfra">DeepInfra (Kimi, GLM, DeepSeek)</option>
             </select>
             <p className="text-xs text-muted-foreground">
               Changes take effect after you click Save Configuration at the bottom of the page.
@@ -879,29 +916,29 @@ export function Settings() {
           </div>
           )}
 
-          {llmProvider === 'moonshot' && (
+          {llmProvider === 'deepinfra' && (
           <div>
-            <h3 className="text-lg font-semibold mb-4">Moonshot API Configuration</h3>
+            <h3 className="text-lg font-semibold mb-4">DeepInfra API Configuration</h3>
             <div className="space-y-4">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label htmlFor="moonshot-api-key" className="text-sm font-medium">
-                    Moonshot API Key
+                  <label htmlFor="deepinfra-api-key" className="text-sm font-medium">
+                    DeepInfra API Key
                   </label>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    aria-label="Test Moonshot API key"
-                    onClick={handleTestMoonshotKey}
-                    disabled={testingMoonshotKey}
+                    aria-label="Test DeepInfra API key"
+                    onClick={handleTestDeepinfraKey}
+                    disabled={testingDeepinfraKey}
                   >
-                    {testingMoonshotKey ? 'Testing...' : 'Test'}
+                    {testingDeepinfraKey ? 'Testing...' : 'Test'}
                   </Button>
                 </div>
-                {moonshotKeyConfigured ? (
+                {deepinfraKeyConfigured ? (
                   <span
-                    data-testid="moonshot-key-status-configured"
+                    data-testid="deepinfra-key-status-configured"
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-green-600"
                   >
                     <span className="h-2 w-2 rounded-full bg-green-500" aria-hidden="true" />
@@ -909,7 +946,7 @@ export function Settings() {
                   </span>
                 ) : (
                   <span
-                    data-testid="moonshot-key-status-missing"
+                    data-testid="deepinfra-key-status-missing"
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
                   >
                     <span className="h-2 w-2 rounded-full bg-muted-foreground/40" aria-hidden="true" />
@@ -917,60 +954,82 @@ export function Settings() {
                   </span>
                 )}
                 <Input
-                  id="moonshot-api-key"
+                  id="deepinfra-api-key"
                   type="password"
-                  value={moonshotApiKey}
-                  onChange={(e) => setMoonshotApiKey(e.target.value)}
-                  placeholder="Enter your Moonshot API key (will be encrypted)"
+                  value={deepinfraApiKey}
+                  onChange={(e) => setDeepinfraApiKey(e.target.value)}
+                  placeholder="Enter your DeepInfra API key (will be encrypted)"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Used when Active Provider is Moonshot (Kimi). Leave empty to keep current value.
+                  Used when Active Provider is DeepInfra (Kimi, GLM, DeepSeek). Leave empty to keep current value.
                   Test checks the entered key, or the saved key if the field is blank.
                 </p>
               </div>
 
               <div className="space-y-2">
-                <label htmlFor="moonshot-base-url" className="text-sm font-medium">
-                  Moonshot Base URL
+                <label htmlFor="deepinfra-base-url" className="text-sm font-medium">
+                  DeepInfra Base URL
                 </label>
                 <Input
-                  id="moonshot-base-url"
+                  id="deepinfra-base-url"
                   type="text"
-                  value={moonshotBaseUrl}
-                  onChange={(e) => setMoonshotBaseUrl(e.target.value)}
-                  placeholder="https://api.moonshot.ai/v1"
+                  value={deepinfraBaseUrl}
+                  onChange={(e) => setDeepinfraBaseUrl(e.target.value)}
+                  placeholder="https://api.deepinfra.com/v1/openai"
                 />
               </div>
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label htmlFor="moonshot-model" className="text-sm font-medium">
-                    Moonshot Model
+                  <label htmlFor="deepinfra-model" className="text-sm font-medium">
+                    DeepInfra Model
                   </label>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => loadModels('moonshot')}
-                    disabled={loadingMoonshotModels}
+                    onClick={() => loadModels('deepinfra')}
+                    disabled={loadingDeepinfraModels}
                   >
-                    {loadingMoonshotModels ? 'Loading...' : 'Refresh list'}
+                    {loadingDeepinfraModels ? 'Loading...' : 'Refresh list'}
                   </Button>
                 </div>
                 <select
-                  id="moonshot-model"
-                  value={moonshotModel}
-                  onChange={(e) => setMoonshotModel(e.target.value)}
+                  id="deepinfra-model"
+                  value={deepinfraModel}
+                  onChange={(e) => setDeepinfraModel(e.target.value)}
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
-                  {buildModelOptions(moonshotModels, moonshotModel).map((m) => (
+                  {buildModelOptions(deepinfraModels, deepinfraModel).map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.label}
+                      {formatDeepInfraModelLabel(m)}
                     </option>
                   ))}
                 </select>
                 <p className="text-xs text-muted-foreground">
-                  Loaded from your Moonshot account. Save an API key first, then Refresh. Defaults to kimi-k2.6.
+                  Loaded from your DeepInfra account (Kimi, GLM, and DeepSeek families).
+                  Save an API key first, then Refresh. Defaults to moonshotai/Kimi-K2.6.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="deepinfra-reasoning-effort" className="text-sm font-medium">
+                  Reasoning Effort
+                </label>
+                <select
+                  id="deepinfra-reasoning-effort"
+                  value={deepinfraReasoningEffort}
+                  onChange={(e) => setDeepinfraReasoningEffort(e.target.value as ReasoningEffort)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="none">none</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium (default)</option>
+                  <option value="high">high</option>
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Higher effort spends more completion tokens on internal reasoning, which
+                  dominates cost and latency. Lower it (or set none) for faster, cheaper runs.
                 </p>
               </div>
             </div>

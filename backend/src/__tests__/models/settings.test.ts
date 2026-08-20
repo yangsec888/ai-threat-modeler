@@ -26,12 +26,13 @@ const mockSettings = {
   anthropic_base_url: 'https://api.anthropic.com',
   openai_api_key: null,
   openai_base_url: 'https://api.openai.com/v1',
-  moonshot_api_key: null,
-  moonshot_base_url: 'https://api.moonshot.ai/v1',
+  deepinfra_api_key: null,
+  deepinfra_base_url: 'https://api.deepinfra.com/v1/openai',
+  deepinfra_reasoning_effort: 'medium',
   llm_provider: 'claude',
   claude_model: null,
   openai_model: 'gpt-4.1',
-  moonshot_model: 'kimi-k2.6',
+  deepinfra_model: 'moonshotai/Kimi-K2.6',
   claude_code_max_output_tokens: 32000,
   github_max_archive_size_mb: 50,
   threat_modeler_max_turns: 100,
@@ -305,40 +306,57 @@ describe('SettingsModel', () => {
       expect(() => SettingsModel.getAgentProviderConfig()).toThrow('OpenAI API key not configured');
     });
 
-    it('returns Moonshot config when llm_provider is moonshot', () => {
+    it('returns DeepInfra config when llm_provider is deepinfra', () => {
       const encryptionKey = 'test-encryption-key-12345678901234567890';
-      const encryptedMoonshotKey = encrypt('sk-moonshot', encryptionKey);
+      const encryptedDeepInfraKey = encrypt('sk-deepinfra', encryptionKey);
       mockGetStmt.get.mockReturnValue({
         ...mockSettings,
         encryption_key: encryptionKey,
-        moonshot_api_key: encryptedMoonshotKey,
-        llm_provider: 'moonshot',
-        moonshot_model: 'kimi-k2.6',
-        moonshot_base_url: 'https://api.moonshot.ai/v1',
+        deepinfra_api_key: encryptedDeepInfraKey,
+        llm_provider: 'deepinfra',
+        deepinfra_model: 'moonshotai/Kimi-K3',
+        deepinfra_base_url: 'https://api.deepinfra.com/v1/openai',
+        deepinfra_reasoning_effort: 'high',
       });
 
       const config = SettingsModel.getAgentProviderConfig();
-      expect(config.provider).toBe('moonshot');
-      expect(config.apiKey).toBe('sk-moonshot');
-      expect(config.model).toBe('kimi-k2.6');
-      expect(config.baseUrl).toBe('https://api.moonshot.ai/v1');
+      expect(config.provider).toBe('deepinfra');
+      expect(config.apiKey).toBe('sk-deepinfra');
+      expect(config.model).toBe('moonshotai/Kimi-K3');
+      expect(config.baseUrl).toBe('https://api.deepinfra.com/v1/openai');
+      expect(config.reasoningEffort).toBe('high');
     });
 
-    it('throws when Moonshot key missing for moonshot provider', () => {
+    it('throws when DeepInfra key missing for deepinfra provider', () => {
       mockGetStmt.get.mockReturnValue({
         ...mockSettings,
-        llm_provider: 'moonshot',
-        moonshot_api_key: null,
+        llm_provider: 'deepinfra',
+        deepinfra_api_key: null,
       });
 
-      expect(() => SettingsModel.getAgentProviderConfig()).toThrow('Moonshot API key not configured');
+      expect(() => SettingsModel.getAgentProviderConfig()).toThrow('DeepInfra API key not configured');
+    });
+
+    it('coerces a legacy moonshot provider to deepinfra', () => {
+      const encryptionKey = 'test-encryption-key-12345678901234567890';
+      const encryptedDeepInfraKey = encrypt('sk-deepinfra', encryptionKey);
+      mockGetStmt.get.mockReturnValue({
+        ...mockSettings,
+        encryption_key: encryptionKey,
+        deepinfra_api_key: encryptedDeepInfraKey,
+        llm_provider: 'moonshot',
+      });
+
+      const config = SettingsModel.getAgentProviderConfig();
+      expect(config.provider).toBe('deepinfra');
+      expect(config.apiKey).toBe('sk-deepinfra');
     });
   });
 
   describe('provider normalization', () => {
-    it('normalizes an unknown llm_provider to claude in get()', () => {
+    it('coerces a legacy moonshot llm_provider to deepinfra in get()', () => {
       mockGetStmt.get.mockReturnValue({ ...mockSettings, llm_provider: 'moonshot' });
-      expect(SettingsModel.get().llm_provider).toBe('moonshot');
+      expect(SettingsModel.get().llm_provider).toBe('deepinfra');
     });
 
     it('rejects an invalid llm_provider on update', () => {

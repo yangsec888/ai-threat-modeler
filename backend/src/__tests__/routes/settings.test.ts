@@ -226,16 +226,17 @@ describe('Settings Routes', () => {
       expect(response.body.error).toContain('non-empty string');
     });
 
-    it('should update Moonshot provider settings', async () => {
+    it('should update DeepInfra provider settings', async () => {
       (SettingsModel.update as jest.Mock).mockReturnValue({
         encryption_key: 'test-encryption-key-12345678901234567890',
         encryption_key_configured: true,
         anthropic_api_key: null,
         anthropic_base_url: 'https://api.anthropic.com',
-        moonshot_api_key: '***ENCRYPTED***',
-        moonshot_base_url: 'https://api.moonshot.ai/v1',
-        llm_provider: 'moonshot',
-        moonshot_model: 'kimi-k3',
+        deepinfra_api_key: '***ENCRYPTED***',
+        deepinfra_base_url: 'https://api.deepinfra.com/v1/openai',
+        llm_provider: 'deepinfra',
+        deepinfra_model: 'moonshotai/Kimi-K3',
+        deepinfra_reasoning_effort: 'high',
         claude_code_max_output_tokens: null,
         github_max_archive_size_mb: 50,
         updated_at: '2024-01-02T00:00:00Z',
@@ -244,18 +245,29 @@ describe('Settings Routes', () => {
       const response = await request(app)
         .put('/api/settings')
         .send({
-          llm_provider: 'moonshot',
-          moonshot_api_key: 'sk-moonshot-123',
-          moonshot_model: 'kimi-k3',
+          llm_provider: 'deepinfra',
+          deepinfra_api_key: 'sk-deepinfra-123',
+          deepinfra_model: 'moonshotai/Kimi-K3',
+          deepinfra_reasoning_effort: 'high',
         });
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('success');
       expect(SettingsModel.update).toHaveBeenCalledWith(expect.objectContaining({
-        llm_provider: 'moonshot',
-        moonshot_api_key: 'sk-moonshot-123',
-        moonshot_model: 'kimi-k3',
+        llm_provider: 'deepinfra',
+        deepinfra_api_key: 'sk-deepinfra-123',
+        deepinfra_model: 'moonshotai/Kimi-K3',
+        deepinfra_reasoning_effort: 'high',
       }));
+    });
+
+    it('should reject an invalid deepinfra_reasoning_effort', async () => {
+      const response = await request(app)
+        .put('/api/settings')
+        .send({ deepinfra_reasoning_effort: 'extreme' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/deepinfra_reasoning_effort/);
     });
 
     it('should reject an unknown llm_provider', async () => {
@@ -384,7 +396,7 @@ describe('Settings Routes', () => {
       );
     });
 
-    it('validates a Moonshot key against its OpenAI-compatible /models endpoint', async () => {
+    it('validates a DeepInfra key against its OpenAI-compatible /models endpoint', async () => {
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         status: 200,
@@ -394,17 +406,17 @@ describe('Settings Routes', () => {
       const response = await request(app)
         .post('/api/settings/validate-api-key')
         .send({
-          api_key: 'sk-moonshot-123',
-          provider: 'moonshot',
+          api_key: 'sk-deepinfra-123',
+          provider: 'deepinfra',
         });
 
       expect(response.status).toBe(200);
       expect(response.body.valid).toBe(true);
       expect(global.fetch).toHaveBeenCalledWith(
-        'https://api.moonshot.ai/v1/models',
+        'https://api.deepinfra.com/v1/openai/models',
         expect.objectContaining({
           method: 'GET',
-          headers: expect.objectContaining({ Authorization: 'Bearer sk-moonshot-123' }),
+          headers: expect.objectContaining({ Authorization: 'Bearer sk-deepinfra-123' }),
         }),
       );
     });
@@ -489,12 +501,13 @@ describe('Settings Routes', () => {
       anthropic_base_url: 'https://api.anthropic.com',
       openai_api_key: null as string | null,
       openai_base_url: 'https://api.openai.com/v1',
-      moonshot_api_key: null as string | null,
-      moonshot_base_url: 'https://api.moonshot.ai/v1',
+      deepinfra_api_key: null as string | null,
+      deepinfra_base_url: 'https://api.deepinfra.com/v1/openai',
+      deepinfra_reasoning_effort: 'medium',
       llm_provider: 'claude',
       claude_model: null,
       openai_model: 'gpt-4.1',
-      moonshot_model: 'kimi-k2.6',
+      deepinfra_model: 'moonshotai/Kimi-K2.6',
       claude_code_max_output_tokens: null,
       github_max_archive_size_mb: 50,
       threat_modeler_max_turns: 100,
@@ -574,11 +587,11 @@ describe('Settings Routes', () => {
       );
     });
 
-    it('lists Moonshot models filtered to kimi/moonshot ids and sorted', async () => {
+    it('lists DeepInfra chat models restricted to Kimi/GLM/DeepSeek and vendor-sorted with pricing', async () => {
       (SettingsModel.get as jest.Mock).mockReturnValue({
         ...baseSettings,
-        llm_provider: 'moonshot',
-        moonshot_api_key: 'sk-moonshot-123',
+        llm_provider: 'deepinfra',
+        deepinfra_api_key: 'sk-deepinfra-123',
       });
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
@@ -586,42 +599,63 @@ describe('Settings Routes', () => {
         statusText: 'OK',
         json: async () => ({
           data: [
-            { id: 'kimi-k3' },
-            { id: 'text-embedding-3' },
-            { id: 'kimi-k2.6' },
-            { id: 'moonshot-v1-8k' },
+            {
+              id: 'deepseek-ai/DeepSeek-V4-Flash',
+              metadata: { tags: ['chat'], context_length: 1_000_000, pricing: { input_tokens: 0.09, output_tokens: 0.18 } },
+            },
+            // Non-chat model must be filtered out.
+            { id: 'black-forest-labs/FLUX-1-dev', metadata: { tags: ['text-to-image'] } },
+            {
+              id: 'moonshotai/Kimi-K3',
+              metadata: { tags: ['chat'], context_length: 1_000_000, pricing: { input_tokens: 2.85, output_tokens: 14.25 } },
+            },
+            // Qwen is chat but outside the UI vendor allowlist -> excluded.
+            { id: 'Qwen/Qwen3-Max', metadata: { tags: ['chat'], pricing: { input_tokens: 1.2, output_tokens: 6 } } },
+            {
+              id: 'zai-org/GLM-5',
+              metadata: { tags: ['chat'], context_length: 200_000, pricing: { input_tokens: 0.6, output_tokens: 2.08 } },
+            },
           ],
         }),
       });
 
-      const response = await request(app).get('/api/settings/models?provider=moonshot');
+      const response = await request(app).get('/api/settings/models?provider=deepinfra');
 
       expect(response.status).toBe(200);
-      expect(response.body.provider).toBe('moonshot');
+      expect(response.body.provider).toBe('deepinfra');
+      // Vendor rank order: moonshotai, zai-org, deepseek-ai; Qwen and image model dropped.
       expect(response.body.models.map((m: { id: string }) => m.id)).toEqual([
-        'kimi-k2.6',
-        'kimi-k3',
-        'moonshot-v1-8k',
+        'moonshotai/Kimi-K3',
+        'zai-org/GLM-5',
+        'deepseek-ai/DeepSeek-V4-Flash',
       ]);
-      expect(global.fetch).toHaveBeenCalledWith(
-        'https://api.moonshot.ai/v1/models',
+      expect(response.body.models[0]).toEqual(
         expect.objectContaining({
-          headers: expect.objectContaining({ Authorization: 'Bearer sk-moonshot-123' }),
+          id: 'moonshotai/Kimi-K3',
+          inputPricePerM: 2.85,
+          outputPricePerM: 14.25,
+          contextLength: 1_000_000,
+        }),
+      );
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://api.deepinfra.com/v1/openai/models',
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: 'Bearer sk-deepinfra-123' }),
         }),
       );
     });
 
-    it('returns 400 when the Moonshot key is not configured', async () => {
+    it('returns 400 when the DeepInfra key is not configured', async () => {
       (SettingsModel.get as jest.Mock).mockReturnValue({
         ...baseSettings,
-        llm_provider: 'moonshot',
-        moonshot_api_key: null,
+        llm_provider: 'deepinfra',
+        deepinfra_api_key: null,
       });
 
-      const response = await request(app).get('/api/settings/models?provider=moonshot');
+      const response = await request(app).get('/api/settings/models?provider=deepinfra');
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toMatch(/Moonshot API key not configured/i);
+      expect(response.body.error).toMatch(/DeepInfra API key not configured/i);
       expect(global.fetch).not.toHaveBeenCalled();
     });
 

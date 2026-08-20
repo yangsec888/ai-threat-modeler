@@ -504,16 +504,16 @@ paths:
                   type: string
                   description: OpenAI-compatible API base URL
                   default: https://api.openai.com/v1
-                moonshot_api_key:
+                deepinfra_api_key:
                   type: string
-                  description: Moonshot API key (encrypted at rest); used by the moonshot provider
-                moonshot_base_url:
+                  description: DeepInfra API key (encrypted at rest); used by the deepinfra provider
+                deepinfra_base_url:
                   type: string
-                  description: Moonshot OpenAI-compatible API base URL
-                  default: https://api.moonshot.ai/v1
+                  description: DeepInfra OpenAI-compatible API base URL
+                  default: https://api.deepinfra.com/v1/openai
                 llm_provider:
                   type: string
-                  enum: [claude, codex, moonshot]
+                  enum: [claude, codex, deepinfra]
                   description: Active model provider for threat modeling, chat, and context extraction
                 claude_model:
                   type: string
@@ -523,10 +523,18 @@ paths:
                   type: string
                   description: Selected OpenAI model (required when provider is codex)
                   default: gpt-4.1
-                moonshot_model:
+                deepinfra_model:
                   type: string
-                  description: Selected Moonshot/Kimi model
-                  default: kimi-k2.6
+                  description: Selected DeepInfra model slug (vendor/Model, e.g. moonshotai/Kimi-K2.6)
+                  default: moonshotai/Kimi-K2.6
+                deepinfra_reasoning_effort:
+                  type: string
+                  enum: [none, low, medium, high]
+                  description: >-
+                    DeepInfra reasoning effort. Higher effort spends more
+                    completion tokens on internal reasoning, dominating cost and
+                    latency.
+                  default: medium
                 claude_code_max_output_tokens:
                   type: integer
                   minimum: 1
@@ -628,10 +636,10 @@ paths:
                     Provider API base URL. Defaults per provider:
                     https://api.anthropic.com (claude),
                     https://api.openai.com/v1 (codex),
-                    https://api.moonshot.ai/v1 (moonshot).
+                    https://api.deepinfra.com/v1/openai (deepinfra).
                 provider:
                   type: string
-                  enum: [claude, codex, moonshot]
+                  enum: [claude, codex, deepinfra]
                   default: claude
                   description: Which provider the key belongs to
       responses:
@@ -674,7 +682,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [claude, codex, moonshot]
+            enum: [claude, codex, deepinfra]
           description: Provider to list models for; defaults to the active provider
       responses:
         '200':
@@ -689,7 +697,7 @@ paths:
                     example: success
                   provider:
                     type: string
-                    enum: [claude, codex, moonshot]
+                    enum: [claude, codex, deepinfra]
                   models:
                     type: array
                     items:
@@ -699,6 +707,15 @@ paths:
                           type: string
                         label:
                           type: string
+                        inputPricePerM:
+                          type: number
+                          description: Per-million-token input price in USD (DeepInfra only)
+                        outputPricePerM:
+                          type: number
+                          description: Per-million-token output price in USD (DeepInfra only)
+                        contextLength:
+                          type: integer
+                          description: Maximum context window in tokens (DeepInfra only)
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1327,17 +1344,17 @@ components:
         openai_base_url:
           type: string
           example: https://api.openai.com/v1
-        moonshot_api_key:
+        deepinfra_api_key:
           type: string
           nullable: true
           description: Shows "***ENCRYPTED***" when API key is set
           example: "***ENCRYPTED***"
-        moonshot_base_url:
+        deepinfra_base_url:
           type: string
-          example: https://api.moonshot.ai/v1
+          example: https://api.deepinfra.com/v1/openai
         llm_provider:
           type: string
-          enum: [claude, codex, moonshot]
+          enum: [claude, codex, deepinfra]
           example: claude
         claude_model:
           type: string
@@ -1346,9 +1363,13 @@ components:
         openai_model:
           type: string
           example: gpt-4.1
-        moonshot_model:
+        deepinfra_model:
           type: string
-          example: kimi-k2.6
+          example: moonshotai/Kimi-K2.6
+        deepinfra_reasoning_effort:
+          type: string
+          enum: [none, low, medium, high]
+          example: medium
         claude_code_max_output_tokens:
           type: integer
           nullable: true

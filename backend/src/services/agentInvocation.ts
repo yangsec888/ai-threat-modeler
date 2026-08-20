@@ -15,29 +15,31 @@ export interface AgentRunInvocation {
 export const CONTEXT_EXTRACTOR_MODEL: Record<AgentProviderConfig['provider'], string> = {
   claude: 'haiku',
   codex: 'gpt-4.1-mini',
-  moonshot: 'kimi-k2.6',
+  // DeepInfra's cheapest capable tier. At $0.09/$0.18 per M it is ~8x cheaper
+  // than Kimi-K2.6 and carries a 1M context window, which matters because the
+  // extraction prompt can reach ~5 MB.
+  deepinfra: 'deepseek-ai/DeepSeek-V4-Flash',
 };
 
 /**
  * Per-provider wall-clock budget for the tool-less context_extractor call.
  *
  * Claude (`haiku`) and Codex (`gpt-4.1-mini`) are fast, cheap models that finish
- * the transform well under two minutes. Moonshot has no comparable "mini" tier,
- * so we route to the flagship `kimi-k2.6`, whose latency on a large (up to 5 MB)
- * extraction prompt regularly exceeds 120s; give it a wider budget so a healthy
- * run is not killed mid-flight. Overridable globally via
- * `CONTEXT_EXTRACTOR_TIMEOUT_MS`.
+ * the transform well under two minutes. DeepInfra's `DeepSeek-V4-Flash` is
+ * likewise a mini tier, but its latency on a large (up to 5 MB) extraction
+ * prompt can still exceed 120s; keep the wider budget so a healthy run is not
+ * killed mid-flight. Overridable globally via `CONTEXT_EXTRACTOR_TIMEOUT_MS`.
  */
 export const CONTEXT_EXTRACTOR_TIMEOUT_MS: Record<AgentProviderConfig['provider'], number> = {
   claude: 120_000,
   codex: 120_000,
-  moonshot: 300_000,
+  deepinfra: 300_000,
 };
 
 export function buildAgentRunInvocation(
   config: AgentProviderConfig,
   roleArgs: string[],
-  options?: { modelOverride?: string },
+  options?: { modelOverride?: string; reasoningEffortOverride?: string },
 ): AgentRunInvocation {
   const env: NodeJS.ProcessEnv = { ...process.env };
   const args = [...roleArgs];
@@ -65,13 +67,17 @@ export function buildAgentRunInvocation(
       }
       break;
     }
-    case 'moonshot': {
-      const model = options?.modelOverride ?? config.model ?? 'kimi-k2.6';
-      args.push('--provider', 'moonshot', '-m', model);
-      env.AGENT_PROVIDER = 'moonshot';
-      env.MOONSHOT_API_KEY = config.apiKey;
+    case 'deepinfra': {
+      const model = options?.modelOverride ?? config.model ?? 'moonshotai/Kimi-K2.6';
+      args.push('--provider', 'deepinfra', '-m', model);
+      const reasoningEffort = options?.reasoningEffortOverride ?? config.reasoningEffort;
+      if (reasoningEffort) {
+        args.push('--reasoning-effort', reasoningEffort);
+      }
+      env.AGENT_PROVIDER = 'deepinfra';
+      env.DEEPINFRA_API_KEY = config.apiKey;
       if (config.baseUrl) {
-        env.MOONSHOT_BASE_URL = config.baseUrl;
+        env.DEEPINFRA_BASE_URL = config.baseUrl;
       }
       break;
     }

@@ -24,18 +24,36 @@ export interface SettingsWithoutSensitive {
   openai_api_key: string | null; // Decrypted API key (only when needed)
   openai_api_key_configured: boolean; // Whether a key is stored (no decryption needed)
   openai_base_url: string;
-  moonshot_api_key: string | null; // Decrypted API key (only when needed)
-  moonshot_api_key_configured: boolean; // Whether a key is stored (no decryption needed)
-  moonshot_base_url: string;
+  deepinfra_api_key: string | null; // Decrypted API key (only when needed)
+  deepinfra_api_key_configured: boolean; // Whether a key is stored (no decryption needed)
+  deepinfra_base_url: string;
   llm_provider: LlmProvider;
   claude_model: string | null;
   openai_model: string;
-  moonshot_model: string;
+  deepinfra_model: string;
+  deepinfra_reasoning_effort: DeepInfraReasoningEffort;
   claude_code_max_output_tokens: number | null;
   github_max_archive_size_mb: number | null;
   threat_modeler_max_turns: number | null;
   threat_adversary_enabled: boolean;
   updated_at: string;
+}
+
+/** DeepInfra reasoning-effort levels (appsec-agent 4.0.0). */
+export type DeepInfraReasoningEffort = 'none' | 'low' | 'medium' | 'high';
+
+export const DEEPINFRA_REASONING_EFFORTS: readonly DeepInfraReasoningEffort[] = [
+  'none',
+  'low',
+  'medium',
+  'high',
+] as const;
+
+export function isDeepInfraReasoningEffort(value: unknown): value is DeepInfraReasoningEffort {
+  return (
+    typeof value === 'string' &&
+    (DEEPINFRA_REASONING_EFFORTS as readonly string[]).includes(value)
+  );
 }
 
 export interface AgentProviderConfig {
@@ -45,14 +63,27 @@ export interface AgentProviderConfig {
   /** Resolved model for the active provider; null for Claude means CLI default (opus). */
   model: string | null;
   claudeCodeMaxOutputTokens: number | null;
+  /** DeepInfra reasoning effort; null for non-DeepInfra providers. */
+  reasoningEffort: DeepInfraReasoningEffort | null;
 }
 
 function normalizeLlmProvider(raw: string | null | undefined): LlmProvider {
   const id = (raw ?? 'claude').toLowerCase().trim();
-  if (id === 'claude' || id === 'codex' || id === 'moonshot') {
+  // Legacy Moonshot instances are coerced to DeepInfra (appsec-agent 4.0.0
+  // dropped the direct Moonshot provider). The DB data migration also does
+  // this, but coerce defensively here so a stale row never throws.
+  if (id === 'moonshot') {
+    return 'deepinfra';
+  }
+  if (id === 'claude' || id === 'codex' || id === 'deepinfra') {
     return id;
   }
-  throw new Error(`Invalid llm_provider "${raw}". Valid values: claude, codex, moonshot`);
+  throw new Error(`Invalid llm_provider "${raw}". Valid values: claude, codex, deepinfra`);
+}
+
+function normalizeReasoningEffort(raw: string | null | undefined): DeepInfraReasoningEffort {
+  const value = (raw ?? 'medium').toLowerCase().trim();
+  return isDeepInfraReasoningEffort(value) ? value : 'medium';
 }
 
 function decryptStoredApiKey(
@@ -86,7 +117,7 @@ export class SettingsModel {
 
     let decryptedAnthropicKey: string | null = null;
     let decryptedOpenAiKey: string | null = null;
-    let decryptedMoonshotKey: string | null = null;
+    let decryptedDeepInfraKey: string | null = null;
     if (includeDecryptedApiKey) {
       decryptedAnthropicKey = decryptStoredApiKey(
         settings.anthropic_api_key,
@@ -98,10 +129,10 @@ export class SettingsModel {
         settings.encryption_key,
         'OpenAI API key',
       );
-      decryptedMoonshotKey = decryptStoredApiKey(
-        settings.moonshot_api_key,
+      decryptedDeepInfraKey = decryptStoredApiKey(
+        settings.deepinfra_api_key,
         settings.encryption_key,
-        'Moonshot API key',
+        'DeepInfra API key',
       );
     }
     
@@ -114,13 +145,14 @@ export class SettingsModel {
       openai_api_key: decryptedOpenAiKey,
       openai_api_key_configured: !!settings.openai_api_key,
       openai_base_url: settings.openai_base_url ?? 'https://api.openai.com/v1',
-      moonshot_api_key: decryptedMoonshotKey,
-      moonshot_api_key_configured: !!settings.moonshot_api_key,
-      moonshot_base_url: settings.moonshot_base_url ?? 'https://api.moonshot.ai/v1',
+      deepinfra_api_key: decryptedDeepInfraKey,
+      deepinfra_api_key_configured: !!settings.deepinfra_api_key,
+      deepinfra_base_url: settings.deepinfra_base_url ?? 'https://api.deepinfra.com/v1/openai',
       llm_provider: normalizeLlmProvider(settings.llm_provider),
       claude_model: settings.claude_model,
       openai_model: settings.openai_model ?? 'gpt-4.1',
-      moonshot_model: settings.moonshot_model ?? 'kimi-k2.6',
+      deepinfra_model: settings.deepinfra_model ?? 'moonshotai/Kimi-K2.6',
+      deepinfra_reasoning_effort: normalizeReasoningEffort(settings.deepinfra_reasoning_effort),
       claude_code_max_output_tokens: settings.claude_code_max_output_tokens,
       github_max_archive_size_mb: settings.github_max_archive_size_mb ?? 50,
       threat_modeler_max_turns: settings.threat_modeler_max_turns ?? 100,
@@ -168,12 +200,12 @@ export class SettingsModel {
     newEncryptionKey: string,
     anthropicPlain: string | null,
     openaiPlain: string | null,
-    moonshotPlain: string | null,
-  ): { anthropic: string | null; openai: string | null; moonshot: string | null } {
+    deepinfraPlain: string | null,
+  ): { anthropic: string | null; openai: string | null; deepinfra: string | null } {
     return {
       anthropic: anthropicPlain ? encrypt(anthropicPlain, newEncryptionKey) : null,
       openai: openaiPlain ? encrypt(openaiPlain, newEncryptionKey) : null,
-      moonshot: moonshotPlain ? encrypt(moonshotPlain, newEncryptionKey) : null,
+      deepinfra: deepinfraPlain ? encrypt(deepinfraPlain, newEncryptionKey) : null,
     };
   }
 
@@ -191,7 +223,7 @@ export class SettingsModel {
       newEncryptionKey,
       currentSettings.anthropic_api_key,
       currentSettings.openai_api_key,
-      currentSettings.moonshot_api_key,
+      currentSettings.deepinfra_api_key,
     );
     
     const stmt = db.prepare(`
@@ -199,12 +231,12 @@ export class SettingsModel {
       SET encryption_key = ?, 
           anthropic_api_key = ?,
           openai_api_key = ?,
-          moonshot_api_key = ?,
+          deepinfra_api_key = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = 1
     `);
     
-    stmt.run(newEncryptionKey, encrypted.anthropic, encrypted.openai, encrypted.moonshot);
+    stmt.run(newEncryptionKey, encrypted.anthropic, encrypted.openai, encrypted.deepinfra);
   }
 
   /**
@@ -220,13 +252,13 @@ export class SettingsModel {
     
     let anthropicPlain: string | null = null;
     let openaiPlain: string | null = null;
-    let moonshotPlain: string | null = null;
+    let deepinfraPlain: string | null = null;
     try {
       const withKeys = this.get(true);
       anthropicPlain = withKeys.anthropic_api_key;
       openaiPlain = withKeys.openai_api_key;
-      moonshotPlain = withKeys.moonshot_api_key;
-      if (anthropicPlain || openaiPlain || moonshotPlain) {
+      deepinfraPlain = withKeys.deepinfra_api_key;
+      if (anthropicPlain || openaiPlain || deepinfraPlain) {
         logger.info('✅ Re-encrypted API keys with new encryption key');
       } else {
         logger.info('ℹ️  No API keys to re-encrypt');
@@ -236,19 +268,19 @@ export class SettingsModel {
       throw new Error('Failed to re-encrypt API keys. An existing key may be corrupted or the encryption key may have changed.');
     }
 
-    const encrypted = this.reEncryptApiKeys(newEncryptionKey, anthropicPlain, openaiPlain, moonshotPlain);
+    const encrypted = this.reEncryptApiKeys(newEncryptionKey, anthropicPlain, openaiPlain, deepinfraPlain);
     
     const stmt = db.prepare(`
       UPDATE settings 
       SET encryption_key = ?, 
           anthropic_api_key = ?,
           openai_api_key = ?,
-          moonshot_api_key = ?,
+          deepinfra_api_key = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = 1
     `);
     
-    stmt.run(newEncryptionKey, encrypted.anthropic, encrypted.openai, encrypted.moonshot);
+    stmt.run(newEncryptionKey, encrypted.anthropic, encrypted.openai, encrypted.deepinfra);
     logger.info('✅ Encryption key regenerated successfully');
     
     return newEncryptionKey;
@@ -289,15 +321,15 @@ export class SettingsModel {
   }
 
   /**
-   * Update Moonshot API key (encrypts before storing)
+   * Update DeepInfra API key (encrypts before storing)
    */
-  static updateMoonshotApiKey(apiKey: string): void {
+  static updateDeepInfraApiKey(apiKey: string): void {
     const currentSettings = this.get(false);
     const encryptedApiKey = encrypt(apiKey, currentSettings.encryption_key);
     
     const stmt = db.prepare(`
       UPDATE settings 
-      SET moonshot_api_key = ?,
+      SET deepinfra_api_key = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = 1
     `);
@@ -334,12 +366,12 @@ export class SettingsModel {
   }
 
   /**
-   * Update Moonshot base URL
+   * Update DeepInfra base URL
    */
-  static updateMoonshotBaseUrl(baseUrl: string): void {
+  static updateDeepInfraBaseUrl(baseUrl: string): void {
     const stmt = db.prepare(`
       UPDATE settings 
-      SET moonshot_base_url = ?,
+      SET deepinfra_base_url = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = 1
     `);
@@ -374,12 +406,13 @@ export class SettingsModel {
     anthropic_base_url?: string;
     openai_api_key?: string;
     openai_base_url?: string;
-    moonshot_api_key?: string;
-    moonshot_base_url?: string;
+    deepinfra_api_key?: string;
+    deepinfra_base_url?: string;
     llm_provider?: LlmProvider;
     claude_model?: string | null;
     openai_model?: string;
-    moonshot_model?: string;
+    deepinfra_model?: string;
+    deepinfra_reasoning_effort?: DeepInfraReasoningEffort;
     claude_code_max_output_tokens?: number | null;
     github_max_archive_size_mb?: number;
     threat_modeler_max_turns?: number;
@@ -393,16 +426,16 @@ export class SettingsModel {
         throw new Error('Encryption key must be at least 32 characters');
       }
 
-      const stmtRow = db.prepare('SELECT anthropic_api_key, openai_api_key, moonshot_api_key FROM settings WHERE id = 1');
+      const stmtRow = db.prepare('SELECT anthropic_api_key, openai_api_key, deepinfra_api_key FROM settings WHERE id = 1');
       const row = stmtRow.get() as {
         anthropic_api_key: string | null;
         openai_api_key: string | null;
-        moonshot_api_key: string | null;
+        deepinfra_api_key: string | null;
       } | undefined;
 
       let anthropicPlain: string | null = null;
       let openaiPlain: string | null = null;
-      let moonshotPlain: string | null = null;
+      let deepinfraPlain: string | null = null;
       if (row?.anthropic_api_key) {
         try {
           anthropicPlain = decrypt(row.anthropic_api_key, oldEncryptionKey);
@@ -419,12 +452,12 @@ export class SettingsModel {
           throw new Error('Failed to decrypt existing OpenAI API key. Cannot update encryption key.');
         }
       }
-      if (row?.moonshot_api_key) {
+      if (row?.deepinfra_api_key) {
         try {
-          moonshotPlain = decrypt(row.moonshot_api_key, oldEncryptionKey);
+          deepinfraPlain = decrypt(row.deepinfra_api_key, oldEncryptionKey);
         } catch (error) {
-          logger.warn('Could not decrypt existing Moonshot API key for re-encryption:', error);
-          throw new Error('Failed to decrypt existing Moonshot API key. Cannot update encryption key.');
+          logger.warn('Could not decrypt existing DeepInfra API key for re-encryption:', error);
+          throw new Error('Failed to decrypt existing DeepInfra API key. Cannot update encryption key.');
         }
       }
 
@@ -436,7 +469,7 @@ export class SettingsModel {
       `);
       updateKeyStmt.run(updates.encryption_key);
 
-      const encrypted = this.reEncryptApiKeys(updates.encryption_key, anthropicPlain, openaiPlain, moonshotPlain);
+      const encrypted = this.reEncryptApiKeys(updates.encryption_key, anthropicPlain, openaiPlain, deepinfraPlain);
       if (anthropicPlain) {
         db.prepare(`UPDATE settings SET anthropic_api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`)
           .run(encrypted.anthropic);
@@ -445,9 +478,9 @@ export class SettingsModel {
         db.prepare(`UPDATE settings SET openai_api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`)
           .run(encrypted.openai);
       }
-      if (moonshotPlain) {
-        db.prepare(`UPDATE settings SET moonshot_api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`)
-          .run(encrypted.moonshot);
+      if (deepinfraPlain) {
+        db.prepare(`UPDATE settings SET deepinfra_api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`)
+          .run(encrypted.deepinfra);
       }
     }
     
@@ -465,11 +498,11 @@ export class SettingsModel {
       this.updateOpenAiApiKey(updates.openai_api_key);
     }
 
-    if (updates.moonshot_api_key !== undefined) {
-      if (updates.moonshot_api_key.trim().length === 0) {
-        throw new Error('Moonshot API key cannot be empty');
+    if (updates.deepinfra_api_key !== undefined) {
+      if (updates.deepinfra_api_key.trim().length === 0) {
+        throw new Error('DeepInfra API key cannot be empty');
       }
-      this.updateMoonshotApiKey(updates.moonshot_api_key);
+      this.updateDeepInfraApiKey(updates.deepinfra_api_key);
     }
     
     if (updates.anthropic_base_url !== undefined) {
@@ -480,8 +513,8 @@ export class SettingsModel {
       this.updateOpenAiBaseUrl(updates.openai_base_url);
     }
 
-    if (updates.moonshot_base_url !== undefined) {
-      this.updateMoonshotBaseUrl(updates.moonshot_base_url);
+    if (updates.deepinfra_base_url !== undefined) {
+      this.updateDeepInfraBaseUrl(updates.deepinfra_base_url);
     }
 
     if (updates.llm_provider !== undefined) {
@@ -508,14 +541,23 @@ export class SettingsModel {
       `).run(value);
     }
 
-    if (updates.moonshot_model !== undefined) {
-      const value = updates.moonshot_model.trim();
+    if (updates.deepinfra_model !== undefined) {
+      const value = updates.deepinfra_model.trim();
       if (!value) {
-        throw new Error('Moonshot model cannot be empty');
+        throw new Error('DeepInfra model cannot be empty');
       }
       db.prepare(`
-        UPDATE settings SET moonshot_model = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1
+        UPDATE settings SET deepinfra_model = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1
       `).run(value);
+    }
+
+    if (updates.deepinfra_reasoning_effort !== undefined) {
+      if (!isDeepInfraReasoningEffort(updates.deepinfra_reasoning_effort)) {
+        throw new Error('deepinfra_reasoning_effort must be one of: none, low, medium, high');
+      }
+      db.prepare(`
+        UPDATE settings SET deepinfra_reasoning_effort = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1
+      `).run(updates.deepinfra_reasoning_effort);
     }
     
     if (updates.claude_code_max_output_tokens !== undefined) {
@@ -559,7 +601,7 @@ export class SettingsModel {
     return this.get(
       updates.anthropic_api_key !== undefined ||
         updates.openai_api_key !== undefined ||
-        updates.moonshot_api_key !== undefined,
+        updates.deepinfra_api_key !== undefined,
     );
   }
 
@@ -612,19 +654,21 @@ export class SettingsModel {
         baseUrl: settings.openai_base_url,
         model: settings.openai_model,
         claudeCodeMaxOutputTokens: settings.claude_code_max_output_tokens,
+        reasoningEffort: null,
       };
     }
 
-    if (provider === 'moonshot') {
-      if (!settings.moonshot_api_key || settings.moonshot_api_key.trim().length === 0) {
-        throw new Error('Moonshot API key not configured. Please configure it in the admin settings panel.');
+    if (provider === 'deepinfra') {
+      if (!settings.deepinfra_api_key || settings.deepinfra_api_key.trim().length === 0) {
+        throw new Error('DeepInfra API key not configured. Please configure it in the admin settings panel.');
       }
       return {
-        provider: 'moonshot',
-        apiKey: settings.moonshot_api_key,
-        baseUrl: settings.moonshot_base_url,
-        model: settings.moonshot_model,
+        provider: 'deepinfra',
+        apiKey: settings.deepinfra_api_key,
+        baseUrl: settings.deepinfra_base_url,
+        model: settings.deepinfra_model,
         claudeCodeMaxOutputTokens: settings.claude_code_max_output_tokens,
+        reasoningEffort: settings.deepinfra_reasoning_effort,
       };
     }
 
@@ -638,6 +682,7 @@ export class SettingsModel {
       baseUrl: settings.anthropic_base_url,
       model: settings.claude_model,
       claudeCodeMaxOutputTokens: settings.claude_code_max_output_tokens,
+      reasoningEffort: null,
     };
   }
 }

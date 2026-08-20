@@ -308,6 +308,25 @@ try {
     db.exec(`ALTER TABLE settings ADD COLUMN moonshot_model TEXT DEFAULT 'kimi-k2.6'`);
     logger.info('✅ Added moonshot_model column to settings table');
   }
+  // DeepInfra provider (appsec-agent >= 4.0.0). Replaces the direct Moonshot
+  // integration; legacy moonshot_* columns above are intentionally retained
+  // (no drops) so a rollback to a Moonshot build stays possible.
+  if (!columnNames.includes('deepinfra_api_key')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN deepinfra_api_key TEXT`);
+    logger.info('✅ Added deepinfra_api_key column to settings table');
+  }
+  if (!columnNames.includes('deepinfra_base_url')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN deepinfra_base_url TEXT DEFAULT 'https://api.deepinfra.com/v1/openai'`);
+    logger.info('✅ Added deepinfra_base_url column to settings table');
+  }
+  if (!columnNames.includes('deepinfra_model')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN deepinfra_model TEXT DEFAULT 'moonshotai/Kimi-K2.6'`);
+    logger.info('✅ Added deepinfra_model column to settings table');
+  }
+  if (!columnNames.includes('deepinfra_reasoning_effort')) {
+    db.exec(`ALTER TABLE settings ADD COLUMN deepinfra_reasoning_effort TEXT DEFAULT 'medium'`);
+    logger.info('✅ Added deepinfra_reasoning_effort column to settings table');
+  }
   if (!columnNames.includes('threat_modeler_max_turns')) {
     db.exec(`ALTER TABLE settings ADD COLUMN threat_modeler_max_turns INTEGER DEFAULT 100`);
     logger.info('✅ Added threat_modeler_max_turns column to settings table');
@@ -319,6 +338,46 @@ try {
 } catch (error: unknown) {
   const message = error instanceof Error ? error.message : 'Unknown error occurred';
   logger.warn('Settings migration warning', { error: message });
+}
+
+// One-time data migration: appsec-agent 4.0.0 replaced the direct Moonshot
+// provider with DeepInfra. Move any instance still on llm_provider='moonshot'
+// onto 'deepinfra' and translate the stored short alias to a DeepInfra
+// vendor/Model slug. The Moonshot API key is deliberately NOT copied — a
+// Moonshot key cannot authenticate against DeepInfra, so the operator must
+// paste a DeepInfra key before the next run.
+try {
+  const row = db
+    .prepare("SELECT llm_provider, moonshot_model, deepinfra_model FROM settings WHERE id = 1")
+    .get() as { llm_provider: string | null; moonshot_model: string | null; deepinfra_model: string | null } | undefined;
+
+  if (row && row.llm_provider === 'moonshot') {
+    const aliasToSlug: Record<string, string> = {
+      'kimi-k2.5': 'moonshotai/Kimi-K2.5',
+      'kimi-k2.6': 'moonshotai/Kimi-K2.6',
+      'kimi-k2.7-code': 'moonshotai/Kimi-K2.7-Code',
+      'kimi-k3': 'moonshotai/Kimi-K3',
+      kimi: 'moonshotai/Kimi-K2.6',
+    };
+    const legacyModel = (row.moonshot_model ?? '').trim().toLowerCase();
+    const mappedSlug = aliasToSlug[legacyModel] ?? 'moonshotai/Kimi-K2.6';
+
+    db.prepare(
+      `UPDATE settings
+       SET llm_provider = 'deepinfra',
+           deepinfra_model = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = 1`,
+    ).run(mappedSlug);
+
+    logger.warn(
+      `⚠️  Migrated llm_provider 'moonshot' -> 'deepinfra' (model '${row.moonshot_model ?? '(default)'}' -> '${mappedSlug}'). ` +
+        'A DeepInfra API key must be configured in admin Settings before the next agent run.',
+    );
+  }
+} catch (error: unknown) {
+  const message = error instanceof Error ? error.message : 'Unknown error occurred';
+  logger.warn('DeepInfra provider migration warning', { error: message });
 }
 
 // Create github_tokens table if it doesn't exist (per-user encrypted PATs)
@@ -451,7 +510,7 @@ export interface ThreatModelingJob {
   completed_at: string | null;
 }
 
-export type LlmProvider = 'claude' | 'codex' | 'moonshot';
+export type LlmProvider = 'claude' | 'codex' | 'deepinfra';
 
 export interface Settings {
   id: number;
@@ -467,9 +526,14 @@ export interface Settings {
   openai_base_url: string | null;
   claude_model: string | null;
   openai_model: string | null;
+  // Legacy Moonshot columns retained for rollback safety (no longer written).
   moonshot_api_key: string | null;
   moonshot_base_url: string | null;
   moonshot_model: string | null;
+  deepinfra_api_key: string | null;
+  deepinfra_base_url: string | null;
+  deepinfra_model: string | null;
+  deepinfra_reasoning_effort: string | null;
   threat_modeler_max_turns: number | null;
   threat_adversary_enabled: number | null;
   created_at: string;

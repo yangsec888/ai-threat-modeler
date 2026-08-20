@@ -448,17 +448,17 @@ describe('API Client', () => {
       )
     })
 
-    it('should pass the moonshot provider in the query string', async () => {
+    it('should pass the deepinfra provider in the query string', async () => {
       localStorageMock.getItem.mockReturnValue('test-token')
       ;(global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ status: 'success', provider: 'moonshot', models: [] }),
+        json: async () => ({ status: 'success', provider: 'deepinfra', models: [] }),
       })
 
-      await api.getModels('moonshot')
+      await api.getModels('deepinfra')
 
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/settings/models?provider=moonshot'),
+        expect.stringContaining('/settings/models?provider=deepinfra'),
         expect.objectContaining({ method: 'GET' })
       )
     })
@@ -476,23 +476,23 @@ describe('API Client', () => {
   })
 
   describe('validateApiKey', () => {
-    it('sends the moonshot provider and base url in the body', async () => {
+    it('sends the deepinfra provider and base url in the body', async () => {
       localStorageMock.getItem.mockReturnValue('test-token')
       ;(global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({ valid: true, message: 'ok' }),
       })
 
-      await api.validateApiKey('sk-moonshot-123', 'https://api.moonshot.ai/v1', 'moonshot')
+      await api.validateApiKey('sk-deepinfra-123', 'https://api.deepinfra.com/v1/openai', 'deepinfra')
 
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/settings/validate-api-key'),
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
-            api_key: 'sk-moonshot-123',
-            base_url: 'https://api.moonshot.ai/v1',
-            provider: 'moonshot',
+            api_key: 'sk-deepinfra-123',
+            base_url: 'https://api.deepinfra.com/v1/openai',
+            provider: 'deepinfra',
           }),
         })
       )
@@ -500,7 +500,7 @@ describe('API Client', () => {
   })
 
   describe('updateSettings', () => {
-    it('forwards moonshot provider fields to the settings endpoint', async () => {
+    it('forwards deepinfra provider fields to the settings endpoint', async () => {
       localStorageMock.getItem.mockReturnValue('test-token')
       ;(global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
@@ -508,10 +508,11 @@ describe('API Client', () => {
       })
 
       await api.updateSettings({
-        llm_provider: 'moonshot',
-        moonshot_api_key: 'sk-moonshot-123',
-        moonshot_base_url: 'https://api.moonshot.ai/v1',
-        moonshot_model: 'kimi-k3',
+        llm_provider: 'deepinfra',
+        deepinfra_api_key: 'sk-deepinfra-123',
+        deepinfra_base_url: 'https://api.deepinfra.com/v1/openai',
+        deepinfra_model: 'moonshotai/Kimi-K3',
+        deepinfra_reasoning_effort: 'high',
       })
 
       expect(global.fetch).toHaveBeenCalledWith(
@@ -519,10 +520,11 @@ describe('API Client', () => {
         expect.objectContaining({
           method: 'PUT',
           body: JSON.stringify({
-            llm_provider: 'moonshot',
-            moonshot_api_key: 'sk-moonshot-123',
-            moonshot_base_url: 'https://api.moonshot.ai/v1',
-            moonshot_model: 'kimi-k3',
+            llm_provider: 'deepinfra',
+            deepinfra_api_key: 'sk-deepinfra-123',
+            deepinfra_base_url: 'https://api.deepinfra.com/v1/openai',
+            deepinfra_model: 'moonshotai/Kimi-K3',
+            deepinfra_reasoning_effort: 'high',
           }),
         })
       )

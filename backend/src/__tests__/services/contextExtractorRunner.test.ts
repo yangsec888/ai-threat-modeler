@@ -121,6 +121,7 @@ describe('runContextExtractor argument shape', () => {
         baseUrl: 'https://api.anthropic.test',
         model: null,
         claudeCodeMaxOutputTokens: null,
+        reasoningEffort: null,
       },
       'hello-world',
       'octocat',
@@ -196,6 +197,7 @@ describe('runContextExtractor argument shape', () => {
         baseUrl: 'https://api.anthropic.test',
         model: null,
         claudeCodeMaxOutputTokens: null,
+        reasoningEffort: null,
       },
       'hello-world',
     );
@@ -217,6 +219,7 @@ describe('runContextExtractor argument shape', () => {
         baseUrl: 'https://api.anthropic.test',
         model: null,
         claudeCodeMaxOutputTokens: null,
+        reasoningEffort: null,
       },
       'hello-world',
     );

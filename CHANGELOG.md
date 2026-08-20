@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-08-19
+
+### Changed
+
+- **Replaced the direct Moonshot provider with DeepInfra** to match `appsec-agent` 4.0.0, which dropped `moonshot` (`AGENT_PROVIDER=moonshot` now fails provider validation at startup). DeepInfra is a HIPAA- and SOC 2-certified inference cloud that hosts the same Kimi models — plus GLM and DeepSeek — behind an OpenAI-compatible API, so the agent loop, tools, MCP bridge, and structured output all carry over unchanged.
+- **Bumped `appsec-agent` to `^4.0.0`** (from `^3.8.2`) in the root and backend packages.
+- **The admin model picker lists the Kimi, GLM, and DeepSeek families** (filtered to DeepInfra `chat`-tagged models from `moonshotai/`, `zai-org/`, and `deepseek-ai/`), each shown with its per-million-token price and context window. Other DeepInfra chat models (Qwen, gpt-oss, ...) remain reachable via the API/CLI but are not offered in the UI.
+- **Per-job cost for the DeepInfra provider is now exact** (DeepInfra's `usage.estimated_cost`) rather than an approximation from a static rate table. The "cost is an estimate" caveat has been removed from the docs.
+- **Context extraction switched to `deepseek-ai/DeepSeek-V4-Flash`** with `--reasoning-effort none` — roughly 8x cheaper than Kimi-K2.6 with a 1M-token context window (vs 262K), which matters for large (~5 MB) extraction prompts.
+- **Root, backend, and frontend package versions bumped to `3.0.0`.**
+
+### Added
+
+- **DeepInfra reasoning-effort setting** (`none` / `low` / `medium` / `high`, default `medium`), exposed in admin Settings and passed through to the agent via `--reasoning-effort`. Higher effort spends more completion tokens on internal reasoning, dominating cost and latency, so it can be lowered for cheaper, faster runs.
+- **`deepinfra_api_key`, `deepinfra_base_url`, `deepinfra_model`, and `deepinfra_reasoning_effort`** settings columns and API fields.
+
+### Migration
+
+- On upgrade, any instance still on `llm_provider='moonshot'` is automatically moved to `deepinfra`, and the stored model alias is translated to a DeepInfra slug (e.g. `kimi-k3` -> `moonshotai/Kimi-K3`). The legacy `moonshot_*` columns are retained (not dropped) so a rollback remains possible.
+- **BREAKING — operators must re-enter credentials.** A Moonshot API key cannot authenticate against DeepInfra. After upgrading, a previously Moonshot-configured instance shows the DeepInfra key as "not configured"; **paste a DeepInfra API key in Settings before the next run, or agent jobs fail with a 401.**
+
 ## [2.3.3] - 2026-08-18
 
 ### Fixed

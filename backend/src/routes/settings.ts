@@ -19,12 +19,13 @@ function toPublicSettings(settings: ReturnType<typeof SettingsModel.get>) {
     anthropic_base_url: settings.anthropic_base_url,
     openai_api_key: settings.openai_api_key_configured ? '***ENCRYPTED***' : null,
     openai_base_url: settings.openai_base_url,
-    moonshot_api_key: settings.moonshot_api_key_configured ? '***ENCRYPTED***' : null,
-    moonshot_base_url: settings.moonshot_base_url,
+    deepinfra_api_key: settings.deepinfra_api_key_configured ? '***ENCRYPTED***' : null,
+    deepinfra_base_url: settings.deepinfra_base_url,
     llm_provider: settings.llm_provider,
     claude_model: settings.claude_model,
     openai_model: settings.openai_model,
-    moonshot_model: settings.moonshot_model,
+    deepinfra_model: settings.deepinfra_model,
+    deepinfra_reasoning_effort: settings.deepinfra_reasoning_effort,
     claude_code_max_output_tokens: settings.claude_code_max_output_tokens,
     github_max_archive_size_mb: settings.github_max_archive_size_mb,
     threat_modeler_max_turns: settings.threat_modeler_max_turns,
@@ -34,8 +35,23 @@ function toPublicSettings(settings: ReturnType<typeof SettingsModel.get>) {
 }
 
 function isValidLlmProvider(value: unknown): value is LlmProvider {
-  return value === 'claude' || value === 'codex' || value === 'moonshot';
+  return value === 'claude' || value === 'codex' || value === 'deepinfra';
 }
+
+const DEEPINFRA_REASONING_EFFORTS = ['none', 'low', 'medium', 'high'] as const;
+type DeepInfraReasoningEffort = (typeof DEEPINFRA_REASONING_EFFORTS)[number];
+
+function isValidReasoningEffort(value: unknown): value is DeepInfraReasoningEffort {
+  return (
+    typeof value === 'string' &&
+    (DEEPINFRA_REASONING_EFFORTS as readonly string[]).includes(value)
+  );
+}
+
+// DeepInfra model dropdown is restricted to these vendor families (Kimi, GLM,
+// DeepSeek). Other chat models (Qwen, gpt-oss, ...) remain reachable via the
+// API/CLI but are intentionally not surfaced in the admin UI.
+const DEEPINFRA_UI_VENDORS = ['moonshotai/', 'zai-org/', 'deepseek-ai/'] as const;
 
 async function validateAnthropicApiKey(apiKey: string, baseUrl: string): Promise<{ valid: boolean; message?: string; error?: string }> {
   const response = await fetch(`${baseUrl}/v1/models`, {
@@ -92,6 +108,12 @@ async function validateOpenAiApiKey(apiKey: string, baseUrl: string): Promise<{ 
 interface ModelOption {
   id: string;
   label: string;
+  /** Per-million-token input price in USD (DeepInfra only). */
+  inputPricePerM?: number;
+  /** Per-million-token output price in USD (DeepInfra only). */
+  outputPricePerM?: number;
+  /** Maximum context window in tokens (DeepInfra only). */
+  contextLength?: number;
 }
 
 async function listAnthropicModels(apiKey: string, baseUrl: string): Promise<ModelOption[]> {
@@ -145,8 +167,9 @@ async function listOpenAiModels(apiKey: string, baseUrl: string): Promise<ModelO
   return selected.map((id) => ({ id, label: id }));
 }
 
-// Moonshot exposes an OpenAI-compatible API (Bearer auth, GET {base}/models).
-async function validateMoonshotApiKey(apiKey: string, baseUrl: string): Promise<{ valid: boolean; message?: string; error?: string }> {
+// DeepInfra exposes an OpenAI-compatible API (Bearer auth, GET {base}/models).
+// A bogus Bearer token returns 401, so this validates like the OpenAI path.
+async function validateDeepInfraApiKey(apiKey: string, baseUrl: string): Promise<{ valid: boolean; message?: string; error?: string }> {
   const normalizedBase = baseUrl.replace(/\/$/, '');
   const response = await fetch(`${normalizedBase}/models`, {
     method: 'GET',
@@ -157,22 +180,31 @@ async function validateMoonshotApiKey(apiKey: string, baseUrl: string): Promise<
   });
 
   if (response.ok) {
-    return { valid: true, message: 'Moonshot API key is valid and working correctly' };
+    return { valid: true, message: 'DeepInfra API key is valid and working correctly' };
   }
   if (response.status === 401) {
-    return { valid: false, error: 'Invalid Moonshot API key. Please check your API key and try again.' };
+    return { valid: false, error: 'Invalid DeepInfra API key. Please check your API key and try again.' };
   }
   if (response.status === 403) {
-    return { valid: false, error: 'Moonshot API key does not have permission to access this resource.' };
+    return { valid: false, error: 'DeepInfra API key does not have permission to access this resource.' };
   }
   const errorText = await response.text().catch(() => 'Unknown error');
   return {
     valid: false,
-    error: `Moonshot API validation failed: ${response.status} ${response.statusText}. ${errorText}`,
+    error: `DeepInfra API validation failed: ${response.status} ${response.statusText}. ${errorText}`,
   };
 }
 
-async function listMoonshotModels(apiKey: string, baseUrl: string): Promise<ModelOption[]> {
+interface DeepInfraModelEntry {
+  id?: string;
+  metadata?: {
+    tags?: string[];
+    context_length?: number;
+    pricing?: { input_tokens?: number; output_tokens?: number };
+  };
+}
+
+async function listDeepInfraModels(apiKey: string, baseUrl: string): Promise<ModelOption[]> {
   const normalizedBase = baseUrl.replace(/\/$/, '');
   const response = await fetch(`${normalizedBase}/models`, {
     method: 'GET',
@@ -184,20 +216,36 @@ async function listMoonshotModels(apiKey: string, baseUrl: string): Promise<Mode
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => 'Unknown error');
-    throw new Error(`Moonshot models request failed: ${response.status} ${response.statusText}. ${errorText}`);
+    throw new Error(`DeepInfra models request failed: ${response.status} ${response.statusText}. ${errorText}`);
   }
 
-  const body = (await response.json()) as { data?: Array<{ id?: string }> };
+  const body = (await response.json()) as { data?: DeepInfraModelEntry[] };
   const data = Array.isArray(body.data) ? body.data : [];
-  const ids = data
-    .map((m) => m.id)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0)
-    .sort((a, b) => a.localeCompare(b));
 
-  // Prefer Kimi/Moonshot ids; fall back to the full list if the filter is empty.
-  const kimiModels = ids.filter((id) => /^(kimi|moonshot)/i.test(id));
-  const selected = kimiModels.length > 0 ? kimiModels : ids;
-  return selected.map((id) => ({ id, label: id }));
+  const vendorRank = (id: string): number => {
+    const idx = DEEPINFRA_UI_VENDORS.findIndex((v) => id.startsWith(v));
+    return idx === -1 ? DEEPINFRA_UI_VENDORS.length : idx;
+  };
+
+  return data
+    .filter(
+      (m): m is DeepInfraModelEntry & { id: string } =>
+        typeof m.id === 'string' &&
+        m.id.length > 0 &&
+        (m.metadata?.tags ?? []).includes('chat') &&
+        DEEPINFRA_UI_VENDORS.some((v) => m.id!.startsWith(v)),
+    )
+    .sort((a, b) => {
+      const rankDiff = vendorRank(a.id) - vendorRank(b.id);
+      return rankDiff !== 0 ? rankDiff : a.id.localeCompare(b.id);
+    })
+    .map((m) => ({
+      id: m.id,
+      label: m.id,
+      inputPricePerM: m.metadata?.pricing?.input_tokens,
+      outputPricePerM: m.metadata?.pricing?.output_tokens,
+      contextLength: m.metadata?.context_length,
+    }));
 }
 
 // GET /api/settings - Get current settings
@@ -237,12 +285,13 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       anthropic_base_url,
       openai_api_key,
       openai_base_url,
-      moonshot_api_key,
-      moonshot_base_url,
+      deepinfra_api_key,
+      deepinfra_base_url,
       llm_provider,
       claude_model,
       openai_model,
-      moonshot_model,
+      deepinfra_model,
+      deepinfra_reasoning_effort,
       claude_code_max_output_tokens,
       github_max_archive_size_mb,
       threat_modeler_max_turns,
@@ -260,12 +309,13 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       anthropic_base_url !== undefined ||
       openai_api_key !== undefined ||
       openai_base_url !== undefined ||
-      moonshot_api_key !== undefined ||
-      moonshot_base_url !== undefined ||
+      deepinfra_api_key !== undefined ||
+      deepinfra_base_url !== undefined ||
       llm_provider !== undefined ||
       claude_model !== undefined ||
       openai_model !== undefined ||
-      moonshot_model !== undefined ||
+      deepinfra_model !== undefined ||
+      deepinfra_reasoning_effort !== undefined ||
       claude_code_max_output_tokens !== undefined ||
       github_max_archive_size_mb !== undefined ||
       threat_modeler_max_turns !== undefined ||
@@ -287,9 +337,9 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       }
     }
 
-    if (moonshot_api_key !== undefined) {
-      if (typeof moonshot_api_key !== 'string' || moonshot_api_key.trim().length === 0) {
-        return res.status(400).json({ error: 'Moonshot API key must be a non-empty string' });
+    if (deepinfra_api_key !== undefined) {
+      if (typeof deepinfra_api_key !== 'string' || deepinfra_api_key.trim().length === 0) {
+        return res.status(400).json({ error: 'DeepInfra API key must be a non-empty string' });
       }
     }
     
@@ -305,14 +355,14 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       }
     }
 
-    if (moonshot_base_url !== undefined) {
-      if (typeof moonshot_base_url !== 'string' || moonshot_base_url.trim().length === 0) {
-        return res.status(400).json({ error: 'Moonshot base URL must be a non-empty string' });
+    if (deepinfra_base_url !== undefined) {
+      if (typeof deepinfra_base_url !== 'string' || deepinfra_base_url.trim().length === 0) {
+        return res.status(400).json({ error: 'DeepInfra base URL must be a non-empty string' });
       }
     }
 
     if (llm_provider !== undefined && !isValidLlmProvider(llm_provider)) {
-      return res.status(400).json({ error: 'llm_provider must be "claude", "codex", or "moonshot"' });
+      return res.status(400).json({ error: 'llm_provider must be "claude", "codex", or "deepinfra"' });
     }
 
     if (claude_model !== undefined && claude_model !== null && typeof claude_model !== 'string') {
@@ -325,10 +375,14 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       }
     }
 
-    if (moonshot_model !== undefined) {
-      if (typeof moonshot_model !== 'string' || moonshot_model.trim().length === 0) {
-        return res.status(400).json({ error: 'moonshot_model must be a non-empty string' });
+    if (deepinfra_model !== undefined) {
+      if (typeof deepinfra_model !== 'string' || deepinfra_model.trim().length === 0) {
+        return res.status(400).json({ error: 'deepinfra_model must be a non-empty string' });
       }
+    }
+
+    if (deepinfra_reasoning_effort !== undefined && !isValidReasoningEffort(deepinfra_reasoning_effort)) {
+      return res.status(400).json({ error: 'deepinfra_reasoning_effort must be one of: none, low, medium, high' });
     }
     
     if (claude_code_max_output_tokens !== undefined) {
@@ -364,12 +418,13 @@ router.put('/', authenticateToken, (req: AuthRequest, res: Response) => {
       anthropic_base_url,
       openai_api_key,
       openai_base_url,
-      moonshot_api_key,
-      moonshot_base_url,
+      deepinfra_api_key,
+      deepinfra_base_url,
       llm_provider,
       claude_model,
       openai_model,
-      moonshot_model,
+      deepinfra_model,
+      deepinfra_reasoning_effort,
       claude_code_max_output_tokens,
       github_max_archive_size_mb,
       threat_modeler_max_turns,
@@ -435,8 +490,8 @@ router.post('/validate-api-key', authenticateToken, async (req: AuthRequest, res
         case 'codex':
           result = await validateOpenAiApiKey(api_key, base_url || 'https://api.openai.com/v1');
           break;
-        case 'moonshot':
-          result = await validateMoonshotApiKey(api_key, base_url || 'https://api.moonshot.ai/v1');
+        case 'deepinfra':
+          result = await validateDeepInfraApiKey(api_key, base_url || 'https://api.deepinfra.com/v1/openai');
           break;
         case 'claude':
           result = await validateAnthropicApiKey(api_key, base_url || 'https://api.anthropic.com');
@@ -500,13 +555,13 @@ router.get('/models', authenticateToken, async (req: AuthRequest, res: Response)
       return res.json({ status: 'success', provider, models });
     }
 
-    if (provider === 'moonshot') {
-      if (!settings.moonshot_api_key || settings.moonshot_api_key.trim().length === 0) {
+    if (provider === 'deepinfra') {
+      if (!settings.deepinfra_api_key || settings.deepinfra_api_key.trim().length === 0) {
         return res.status(400).json({
-          error: 'Moonshot API key not configured. Save your Moonshot API key first to load models.',
+          error: 'DeepInfra API key not configured. Save your DeepInfra API key first to load models.',
         });
       }
-      const models = await listMoonshotModels(settings.moonshot_api_key, settings.moonshot_base_url);
+      const models = await listDeepInfraModels(settings.deepinfra_api_key, settings.deepinfra_base_url);
       return res.json({ status: 'success', provider, models });
     }
 

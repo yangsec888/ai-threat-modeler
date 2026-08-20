@@ -55,6 +55,6 @@ The backend image bundles **`appsec-agent@3.8.0`**, which pulls in:
 
 - the **Claude Agent SDK** with native `claude` binaries (default provider),
 - the **`codex` CLI** for the OpenAI provider, and
-- the **`openai` SDK** used by the Moonshot (Kimi) provider. Moonshot runs against an OpenAI-compatible HTTP API and needs no platform-specific binary, so there is no extra native-binary check for it in `backend/Dockerfile`.
+- the **`openai` SDK** used by the DeepInfra (Kimi, GLM, DeepSeek) provider. DeepInfra runs against an OpenAI-compatible HTTP API and needs no platform-specific binary, so there is no extra native-binary check for it in `backend/Dockerfile`.
 
 Upgrading `appsec-agent` is a matter of bumping the version in `backend/package.json` and rebuilding the backend image.

@@ -6,9 +6,10 @@ All settings live under **Settings** (admin only). Credentials are stored **encr
 
 | Setting | Default | When to change it |
 |---------|---------|-------------------|
-| **LLM Provider** | Claude | Switch to OpenAI (Codex) or Moonshot (Kimi) if you prefer those models. |
-| **Claude / OpenAI / Moonshot API key** | — | Required before any agent job. Use **Test** to validate. |
+| **LLM Provider** | Claude | Switch to OpenAI (Codex) or DeepInfra (Kimi, GLM, DeepSeek) if you prefer those models. |
+| **Claude / OpenAI / DeepInfra API key** | — | Required before any agent job. Use **Test** to validate. |
 | **Claude Code Max Output Tokens** | 32,000 | Raise if responses hit token limits (e.g. 64k). Claude provider only. |
+| **DeepInfra Reasoning Effort** | medium | Lower (or `none`) for cheaper, faster runs; raise for harder analysis. DeepInfra only. |
 | **Threat Modeler Max Turns** | 100 | Raise for large repos that need more code grounding (max 500). |
 | **Adversarial second pass** | On | Turn off for faster, cheaper single-pass runs. |
 | **GitHub PAT** | — | Only needed for **private** repo import. |
@@ -18,14 +19,15 @@ All settings live under **Settings** (admin only). Credentials are stored **encr
 
 - **Claude (default)** — paste your Anthropic API key. The model dropdown loads available models once a valid key is saved.
 - **OpenAI (Codex)** — switch the provider, paste an OpenAI key, and pick a model.
-- **Moonshot (Kimi)** — switch the provider, paste a Moonshot API key, and pick a Kimi model. The default base URL is `https://api.moonshot.ai/v1` and the default model is `kimi-k2.6`. Moonshot exposes an OpenAI-compatible API, so **Test** and the model dropdown work the same way as the OpenAI provider.
+- **DeepInfra (Kimi, GLM, DeepSeek)** — switch the provider, paste a DeepInfra API key, and pick a model. The default base URL is `https://api.deepinfra.com/v1/openai` and the default model is `moonshotai/Kimi-K2.6`. DeepInfra is a HIPAA- and SOC 2-certified inference cloud that hosts open-weight models behind an OpenAI-compatible API. The model dropdown lists the Kimi, GLM, and DeepSeek families with their per-million-token price and context window; **Test** works the same way as the OpenAI provider.
+  - **Reasoning Effort** (`none` / `low` / `medium` / `high`, default `medium`) controls how many completion tokens the model spends on internal reasoning. It dominates cost and latency, so lower it for cheaper, faster runs.
 - Use the **Test** button next to a key to confirm it authenticates before saving.
 
 Only the currently selected provider's settings are shown, to keep the screen simple.
 
-### A note on Moonshot cost reporting
+### A note on DeepInfra cost reporting
 
-For the Moonshot provider, the per-job cost shown in the dashboard is an **estimate** computed from a static per-model rate table in `appsec-agent` (Moonshot's API does not return billed cost). Treat it as an approximation, not an invoice.
+For the DeepInfra provider, the per-job cost shown in the dashboard is the **exact** billed amount reported by DeepInfra (`usage.estimated_cost`), not an approximation from a static rate table.
 
 ## Tuning for large repositories
 

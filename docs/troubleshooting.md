@@ -21,9 +21,10 @@ Job-specific detail also lands under `./backend/logs/` and in each job's `error_
 | Symptom | Likely cause | What to do |
 |---------|--------------|------------|
 | "Agent provider not configured" on job start | No API key saved | **Settings → LLM Provider** → paste key → **Save Configuration** |
-| Key validation fails on save | Wrong key, base URL, or provider mismatch | Confirm you're on the right provider (Claude, OpenAI, or Moonshot); check base URL; use the **Test** button |
+| Key validation fails on save | Wrong key, base URL, or provider mismatch | Confirm you're on the right provider (Claude, OpenAI, or DeepInfra); check base URL; use the **Test** button |
 | OpenAI selected but jobs fail | Codex provider not available in the image | Use Claude (default), or ensure the backend image includes the `codex` CLI (see `backend/Dockerfile`) |
-| Moonshot selected but jobs fail | Missing/invalid Moonshot key or base URL | Confirm the Moonshot API key is saved and **Test** passes; default base URL is `https://api.moonshot.ai/v1`. Requires `appsec-agent@3.8.0`+ in the backend image |
+| DeepInfra selected but jobs fail | Missing/invalid DeepInfra key or base URL | Confirm the DeepInfra API key is saved and **Test** passes; default base URL is `https://api.deepinfra.com/v1/openai`. Requires `appsec-agent@4.0.0`+ in the backend image |
+| Upgraded from a Moonshot build and jobs 401 | Moonshot keys are not portable to DeepInfra | The provider is auto-migrated to `deepinfra`, but you must paste a **new DeepInfra API key** in **Settings** before the next run |
 
 ## Staging and context extraction
 
