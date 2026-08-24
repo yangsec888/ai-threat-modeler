@@ -205,6 +205,22 @@ const ReportPageContent = () => {
             {job.metadata?.scan_date && (
               <p className="text-sm text-muted-foreground">Scan date: {job.metadata.scan_date}</p>
             )}
+            {job.metadata?.llm_provider && (
+              <p className="text-sm text-muted-foreground" data-testid="report-regime">
+                Model regime:{' '}
+                {[job.metadata.llm_provider, job.metadata.model]
+                  .filter(Boolean)
+                  .join(' / ')}
+                {job.metadata.reasoning_effort &&
+                  ` · reasoning: ${job.metadata.reasoning_effort}`}
+                {' · adversarial review: '}
+                {job.metadata.adversary_review_applied
+                  ? 'applied'
+                  : job.metadata.threat_adversary_enabled
+                    ? 'enabled (first pass retained)'
+                    : 'off'}
+              </p>
+            )}
           </div>
         )}
 

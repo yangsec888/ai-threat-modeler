@@ -830,6 +830,9 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
       reportData.threat_model_report?.metadata?.total_threats_identified ??
       reportData.threat_model_report?.threat_model?.threats?.length ??
       0;
+    // Whether the adversarial second pass output was actually adopted (its
+    // report replaced the first pass). Recorded into report metadata below.
+    let adversaryApplied = false;
 
     if (SettingsModel.getThreatAdversaryEnabled()) {
       checkCancellation();
@@ -924,6 +927,7 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
           } else {
             finalReportPath = adversaryOutputPath;
             reportData = advData;
+            adversaryApplied = true;
             logger.info(
               `✅ Using adversary-filtered report (${filteredCount} threats, was ${firstPassThreatCount})`,
             );
@@ -952,7 +956,22 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
         }
       }
     }
-    
+
+    // Report metadata regime: stamp the model regime that produced this report
+    // (provider, model, reasoning effort, and whether the adversarial second
+    // pass ran and was adopted). This makes every shipped report self-describing
+    // even when it lands in a SIEM, compliance archive, or stale CI artifact.
+    // We inject AFTER the adversary swap so `reportData` is the final object,
+    // and rewrite `finalReportPath` in place before it is copied to jobReportDir.
+    const reportMetadata = (reportData.threat_model_report.metadata ??= {});
+    reportMetadata.llm_provider = providerConfig.provider;
+    reportMetadata.model = providerConfig.model ?? null;
+    reportMetadata.reasoning_effort = providerConfig.reasoningEffort ?? null;
+    reportMetadata.threat_adversary_enabled =
+      Boolean(SettingsModel.getThreatAdversaryEnabled());
+    reportMetadata.adversary_review_applied = adversaryApplied;
+    fs.writeFileSync(finalReportPath, JSON.stringify(reportData, null, 2), 'utf-8');
+
     // Copy the single JSON report to jobReportDir
     const destReportPath = path.join(jobReportDir, 'threat_model_report.json');
     fs.copyFileSync(finalReportPath, destReportPath);

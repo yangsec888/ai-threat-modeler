@@ -5,8 +5,13 @@ services:
       dockerfile: Dockerfile
     container_name: threat-model-ai-backend
     user: "${UID:-502}:${GID:-502}"
+    # SEC-004: bind the published port to loopback by default so the API is not
+    # exposed on every host interface. The reverse of the container's internal
+    # HOST (below) is deliberate: the port is only reachable via the host's
+    # localhost. Override to "0.0.0.0:3001:3001" (or a specific interface, e.g.
+    # "192.168.1.10:3001:3001") when the service must be reachable off-host.
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -15,6 +20,11 @@ services:
       # Intentionally NOT using ${JWT_SECRET:?...} so `docker-compose down`,
       # `ps`, and `logs` keep working when the var is unset.
       - JWT_SECRET=${JWT_SECRET}
+      # Bind to 0.0.0.0 INSIDE the container so the published port (3001:3001)
+      # is reachable. This is safe: the container's network is isolated, and an
+      # adversary would still need to traverse the host firewall + docker's port
+      # mapping. Plain `npm run dev`/`npm start` defaults to 127.0.0.1 (loopback).
+      - HOST=0.0.0.0
     volumes:
       - ./backend/data:/app/data
       - ./backend/uploads:/app/uploads
@@ -66,7 +76,7 @@ services:
     container_name: threat-model-ai-frontend
     user: "${UID:-502}:${GID:-502}"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3001/api}

@@ -34,6 +34,7 @@ jest.mock('../../models/settings', () => ({
       baseUrl: 'https://api.anthropic.com',
       model: null,
       claudeCodeMaxOutputTokens: null,
+      reasoningEffort: null,
     })),
     get: jest.fn(() => ({
       encryption_key: 'test-encryption-key',
@@ -42,6 +43,7 @@ jest.mock('../../models/settings', () => ({
       claude_code_max_output_tokens: null,
       updated_at: '2024-01-01T00:00:00Z',
     })),
+    getThreatAdversaryEnabled: jest.fn(() => false),
   },
 }));
 
@@ -146,6 +148,7 @@ jest.mock('fs', () => ({
   rmSync: jest.fn(),
   unlinkSync: jest.fn(),
   copyFileSync: jest.fn(),
+  writeFileSync: jest.fn(),
   renameSync: jest.fn(),
   createWriteStream: jest.fn(() => ({
     on: jest.fn((event: string, handler: Function) => {

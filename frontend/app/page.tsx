@@ -27,7 +27,6 @@ export default function Home() {
 
 function Dashboard() {
   const { user, logout, needsPasswordChange } = useAuth();
-  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [activeNav, setActiveNav] = useState<NavItem>('threat-modeling');
 
   const renderContent = () => {
@@ -51,54 +50,61 @@ function Dashboard() {
 
   return (
     <main className="h-screen flex bg-background overflow-hidden">
-      {/* Sidebar */}
-      <Sidebar
-        activeItem={activeNav}
-        onItemClick={setActiveNav}
-        isAdmin={user?.role === 'Admin'}
-        username={user?.username}
-        onLogout={logout}
-      />
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Password Change Banner */}
-        {needsPasswordChange && !showPasswordDialog && (
-          <div className="bg-amber-50 border-b border-amber-200 p-4 flex-shrink-0">
-            <div className="flex items-center justify-between max-w-7xl mx-auto">
-              <div className="flex items-center gap-3">
-                <span className="text-amber-600 font-semibold">⚠️ Security Reminder</span>
-                <span className="text-amber-700 text-sm">
-                  You are using the default password. Please change it immediately for security.
-                </span>
-              </div>
-              <Button 
-                variant="default" 
-                size="sm" 
-                onClick={() => setShowPasswordDialog(true)}
-                className="bg-amber-600 hover:bg-amber-700"
+      {/* Non-dismissible password gate: while the account still uses the
+          default credentials, block access to the app so the default
+          password cannot be used to operate the system. */}
+      {needsPasswordChange ? (
+        <div
+          data-testid="password-change-gate"
+          className="fixed inset-0 z-50 bg-background flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="password-gate-title"
+        >
+          <div className="w-full max-w-md">
+            <div className="mb-3 text-center">
+              <h1 id="password-gate-title" className="text-xl font-semibold text-amber-700">
+                ⚠️ Default Password Must Be Changed
+              </h1>
+              <p className="text-muted-foreground text-sm mt-2">
+                You are signed in with the built-in default credentials. For security,
+                all other functions are locked until you set a strong personal password.
+              </p>
+            </div>
+            <ChangePasswordDialog showCloseButton={false} />
+            <div className="mt-3 text-center">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={logout}
+                data-testid="gate-logout"
+                className="text-muted-foreground"
               >
-                Change Password
+                Sign out instead
               </Button>
             </div>
           </div>
-        )}
-        
-        {/* Password Dialog Modal */}
-        {showPasswordDialog && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <ChangePasswordDialog 
-              onClose={() => setShowPasswordDialog(false)}
-              showCloseButton={true}
-            />
-          </div>
-        )}
-
-        {/* Page Content */}
-        <div className="flex-1 overflow-auto">
-          {renderContent()}
         </div>
-      </div>
+      ) : (
+        <>
+          {/* Sidebar */}
+          <Sidebar
+            activeItem={activeNav}
+            onItemClick={setActiveNav}
+            isAdmin={user?.role === 'Admin'}
+            username={user?.username}
+            onLogout={logout}
+          />
+
+          {/* Main Content Area */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Page Content */}
+            <div className="flex-1 overflow-auto">
+              {renderContent()}
+            </div>
+          </div>
+        </>
+      )}
     </main>
   )
 }

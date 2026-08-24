@@ -1670,6 +1670,24 @@ components:
           type: integer
         total_risks_identified:
           type: integer
+        llm_provider:
+          type: string
+          nullable: true
+          description: Provider that generated the report (claude | codex | deepinfra)
+        model:
+          type: string
+          nullable: true
+          description: Resolved model id used for the run (null for Claude CLI default)
+        reasoning_effort:
+          type: string
+          nullable: true
+          description: DeepInfra reasoning-effort level, null for non-DeepInfra providers
+        threat_adversary_enabled:
+          type: boolean
+          description: Whether the adversarial second pass was enabled for this job
+        adversary_review_applied:
+          type: boolean
+          description: Whether the adversarial pass report was adopted over the first pass
 
     Recommendation:
       type: object

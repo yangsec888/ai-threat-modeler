@@ -24,11 +24,12 @@ jest.mock('@/components/dfd/DfdTabContent', () => ({
 }))
 
 const mockSave = jest.fn()
+const mockPdfText = jest.fn()
 jest.mock('jspdf', () => ({
   jsPDF: jest.fn().mockImplementation(() => ({
     internal: { pageSize: { getWidth: () => 300, getHeight: () => 200 } },
     setFontSize: jest.fn(),
-    text: jest.fn(),
+    text: mockPdfText,
     splitTextToSize: jest.fn(() => ['line']),
     save: mockSave,
     lastAutoTable: { finalY: 50 },
@@ -55,6 +56,11 @@ const baseJob: ThreatModelingJob = {
     methodology: 'STRIDE',
     total_threats_identified: 2,
     total_risks_identified: 1,
+    llm_provider: 'deepinfra',
+    model: 'moonshotai/Kimi-K2.6',
+    reasoning_effort: 'high',
+    threat_adversary_enabled: true,
+    adversary_review_applied: true,
   },
   dataFlowDiagram: {
     description: 'DFD',
@@ -110,6 +116,7 @@ describe('<JobReport />', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockSave.mockClear()
+    mockPdfText.mockClear()
     URL.createObjectURL = jest.fn(() => 'blob:mock')
     URL.revokeObjectURL = jest.fn()
   })
@@ -226,5 +233,13 @@ describe('<JobReport />', () => {
       expect(mockSave).toHaveBeenCalled()
       expect(onToastSuccess).toHaveBeenCalledWith('PDF exported successfully!')
     })
+
+    // Report-metadata regime must be stamped into the PDF header.
+    const pdfTextCalls = mockPdfText.mock.calls.map((c) => String(c[0]))
+    expect(
+      pdfTextCalls.some((t) =>
+        t.includes('deepinfra · moonshotai/Kimi-K2.6 · high · adversarial review applied'),
+      ),
+    ).toBe(true)
   })
 })

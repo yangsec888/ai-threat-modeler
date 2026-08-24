@@ -250,6 +250,19 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
       doc.text(`Threat Model Report - ${projectName}`, 14, 15)
       doc.setFontSize(10)
       doc.text(`Generated: ${scanDate}`, 14, 22)
+      const regimeLine = [
+        job.metadata?.llm_provider,
+        job.metadata?.model,
+        job.metadata?.reasoning_effort || null,
+        job.metadata?.adversary_review_applied === true
+          ? 'adversarial review applied'
+          : null,
+      ]
+        .filter((v): v is string => Boolean(v))
+        .join(' · ')
+      if (regimeLine) {
+        doc.text(`Model regime: ${regimeLine}`, 14, 27)
+      }
 
       if (section === 'dfd' && job.dataFlowDiagram) {
         const dfd = job.dataFlowDiagram

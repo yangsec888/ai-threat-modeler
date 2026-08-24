@@ -104,6 +104,12 @@ export interface ReportMetadata {
   methodology: string
   total_threats_identified: number
   total_risks_identified: number
+  // Model regime that produced the report (stamped server-side at job time).
+  llm_provider?: string | null
+  model?: string | null
+  reasoning_effort?: string | null
+  threat_adversary_enabled?: boolean
+  adversary_review_applied?: boolean
 }
 
 export interface Recommendation {

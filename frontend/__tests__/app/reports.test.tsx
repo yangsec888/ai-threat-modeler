@@ -69,6 +69,11 @@ const completedJob: ThreatModelingJob = {
     methodology: 'STRIDE',
     total_threats_identified: 1,
     total_risks_identified: 1,
+    llm_provider: 'deepinfra',
+    model: 'moonshotai/Kimi-K2.6',
+    reasoning_effort: 'medium',
+    threat_adversary_enabled: true,
+    adversary_review_applied: false,
   },
   dataFlowDiagram: {
     description: 'd',
@@ -107,6 +112,10 @@ describe('Report job page /reports/[jobId]', () => {
     })
     expect(screen.getByTestId('job-context-stub')).toBeInTheDocument()
     expect(screen.getByTestId('report-page-title')).toHaveTextContent('My Project')
+    // Report-metadata regime: provider/model/reasoning + adversarial review status.
+    expect(screen.getByTestId('report-regime')).toHaveTextContent('deepinfra / moonshotai/Kimi-K2.6')
+    expect(screen.getByTestId('report-regime')).toHaveTextContent('reasoning: medium')
+    expect(screen.getByTestId('report-regime')).toHaveTextContent('enabled (first pass retained)')
     expect(document.title).toContain('My Project')
   })
 

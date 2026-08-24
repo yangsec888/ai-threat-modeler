@@ -46,7 +46,11 @@ export function buildAgentRunInvocation(
 
   switch (config.provider) {
     case 'claude': {
-      args.push('-k', config.apiKey, '-u', config.baseUrl);
+      // SEC: never place the API key on argv. appsec-agent reads ANTHROPIC_API_KEY
+      // from the environment (its `-k` flag only *overrides* that var), so we pass
+      // the key exclusively via env to keep it out of /proc/<pid>/cmdline. The
+      // base URL is not secret and is safe on argv.
+      args.push('-u', config.baseUrl);
       const model = options?.modelOverride ?? config.model;
       if (model) {
         args.push('-m', model);

@@ -45,7 +45,11 @@ try {
 }
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT) || 3001;
+// SEC: default to listening only on loopback so the API is not exposed on the
+// LAN. Override deliberately (e.g. `HOST=0.0.0.0` behind a reverse proxy or
+// the docker-compose mapping) when remote access is required.
+const HOST = process.env.HOST || '127.0.0.1';
 
 // Middleware
 app.use(cors());
@@ -103,9 +107,9 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
   res.status(500).json({ error: 'Internal server error', message: err.message });
 });
 
-app.listen(PORT, () => {
-  logger.info(`🚀 Backend server running on http://localhost:${PORT}`);
-  logger.info(`📡 API endpoints available at http://localhost:${PORT}/api`);
+app.listen(PORT, HOST, () => {
+  logger.info(`🚀 Backend server running on http://${HOST}:${PORT}`);
+  logger.info(`📡 API endpoints available at http://${HOST}:${PORT}/api`);
   logger.info(`📚 API documentation available at http://localhost:${PORT}/api-docs`);
   logger.info(`📁 Logs are being written to backend/logs/`);
   

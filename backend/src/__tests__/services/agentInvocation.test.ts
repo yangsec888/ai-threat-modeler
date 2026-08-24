@@ -33,17 +33,30 @@ describe('buildAgentRunInvocation', () => {
     reasoningEffort: 'medium',
   };
 
-  it('builds Claude argv and env', () => {
+  it('builds Claude argv and env without exposing the API key on argv', () => {
     const { args, env } = buildAgentRunInvocation(claudeConfig, ['-r', 'threat_modeler']);
     expect(args).toEqual([
       '-r', 'threat_modeler',
-      '-k', 'sk-ant-test',
       '-u', 'https://api.anthropic.com',
       '-m', 'opus',
     ]);
     expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-test');
     expect(env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe('32000');
+    expect(args).not.toContain('-k');
+    // Defense-in-depth: the secret string must never appear anywhere on argv.
+    expect(args.join(' ')).not.toContain('sk-ant-test');
     expect(args).not.toContain('--provider');
+  });
+
+  it.each([
+    ['claude', claudeConfig],
+    ['codex', codexConfig],
+    ['deepinfra', deepinfraConfig],
+  ])('never leaks the %s API key onto argv', (_name, config) => {
+    const { args } = buildAgentRunInvocation(config as AgentProviderConfig, ['-r', 'threat_modeler']);
+    const joined = args.join(' ');
+    expect(joined).not.toContain(config.apiKey);
+    expect(args).not.toContain('-k');
   });
 
   it('builds Codex argv and env without Anthropic flags', () => {

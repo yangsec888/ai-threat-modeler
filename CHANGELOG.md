@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.2] - 2026-08-24
+
+The four source-review findings from issue #2, plus a disclosure path requested in the same review. Patch release: no schema-version bump, no breaking change.
+
+### Security
+
+- **The provider API key no longer travels in argv.** `buildAgentRunInvocation` previously passed the Anthropic key to the agent process with `-k`, which puts it in `/proc/<pid>/cmdline` and `ps` output where any local user could read it on a shared host. The key is now passed exclusively through the environment (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`, `DEEPINFRA_API_KEY`); the non-secret base URL remains the only provider value on the command line. Unit tests assert the secret string never appears anywhere on argv for all three providers.
+- **The default `admin` account is now gated.** The dashboard previously showed a dismissible amber banner while the account was still on the default password, leaving the whole app usable. The frontend now renders a **non-dismissible, full-screen password-change gate** when `needsPasswordChange` is set: no sidebar, no content, and only a "Sign out" escape hatch, until the default credentials are replaced. Covered by Playwright e2e tests.
+- **Network exposure is loopback by default.** The backend now binds `127.0.0.1` unless `HOST` is set (`Number(process.env.PORT) || 3001` also fixes a latent string-port type bug), and `docker-compose.yml` publishes both `3000` and `3001` on `127.0.0.1:PORT:PORT` instead of every interface. The container still sets `HOST=0.0.0.0` internally so its own published mapping is reachable through that loopback gate, and remote access remains a deliberate, documented override.
+
+### Added
+
+- **Report artifacts are now self-describing (regime metadata).** `processThreatModelingJob` stamps the producing regime into each shipped report's `metadata` — `llm_provider`, `model`, `reasoning_effort`, `threat_adversary_enabled`, and `adversary_review_applied` — *after* the optional adversarial swap, so the artifact records whether the second pass ran and whether its filtered report was actually adopted over the first pass. The report page and the PDF export render a "Model regime" line, and the frontend `ReportMetadata` type and `openapi.yaml` document the new fields. A filtered run and an unfiltered run are no longer indistinguishable after export.
+- **`LICENSE`** (MIT, © 2026 Sam Li) — the repo previously declared MIT in `package.json` with no license file, so API consumers saw none. Added the full MIT text so the notice travels with the code.
+- **`SECURITY.md`** — supported-versions table and instructions for **private** vulnerability reporting (GitHub private vulnerability reporting, with an email fallback), coordinated-disclosure policy, and a note on the enforced hardening defaults. This gives the project the disclosure path the review explicitly called out as missing.
+
+### Changed
+
+- **Root, backend, and frontend package versions bumped to `3.2.2`.**
+
 ## [3.2.1] - 2026-08-24
 
 ### Fixed
