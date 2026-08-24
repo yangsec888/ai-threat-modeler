@@ -82,6 +82,28 @@ jest.mock('../../models/threatModelingJob', () => ({
   JobPhase: { Refining: 'refining' },
 }));
 
+// Mock ThreatReviewModel
+const reviewStatusesByJob: Record<string, Record<string, { status: string; note: string | null }>> = {};
+let mockListForJob: jest.Mock = jest.fn(() => ({}));
+jest.mock('../../models/threatReview', () => ({
+  ThreatReviewModel: {
+    upsert: jest.fn(() => ({
+      jobId: 'job1',
+      findingId: 'T-001',
+      status: 'accepted',
+      note: null,
+      updatedAt: '2026-01-01T00:00:00Z',
+    })),
+    listForJob: jest.fn((jobId: string) => mockListForJob(jobId)),
+    deleteForJob: jest.fn(),
+  },
+  isReviewStatus: jest.fn((v: unknown) =>
+    typeof v === 'string' &&
+    ['unreviewed', 'accepted', 'mitigated', 'false_positive', 'needs_review'].includes(v),
+  ),
+  REVIEW_STATUSES: ['unreviewed', 'accepted', 'mitigated', 'false_positive', 'needs_review'],
+}));
+
 // Mock child_process.spawn for agent-run CLI execution
 jest.mock('child_process', () => ({
   execSync: jest.fn(),
@@ -259,6 +281,12 @@ describe('Threat Modeling Routes', () => {
       }
       return true; // Default to true for other paths
     });
+
+    // Reset review model mock to default "no reviews".
+    mockListForJob.mockReset();
+    mockListForJob.mockReturnValue({});
+    const { ThreatReviewModel } = require('../../models/threatReview');
+    (ThreatReviewModel.upsert as jest.Mock).mockClear();
   });
   
   afterEach(() => {
@@ -507,7 +535,230 @@ describe('Threat Modeling Routes', () => {
       expect(response.body.job.dataFlowDiagram).toBeNull();
       expect(response.body.job.threatModel).toBeNull();
     });
+    it('should merge review status/note onto threats and derive risk status', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const wrappedReport = require('../fixtures/dfd-wrapped-report.json') as {
+        threat_model_report: Record<string, unknown>;
+      };
+
+      const mockJob = {
+        id: 'job-review',
+        user_id: 1,
+        repo_path: '/path/to/repo',
+        query: 'Test query',
+        status: 'completed',
+        report_path: '/reports/job-review/report.json',
+        data_flow_diagram_path: '/reports/job-review/report.json',
+        threat_model_path: '/reports/job-review/report.json',
+        risk_registry_path: '/reports/job-review/report.json',
+        error_message: null,
+        repo_name: 'test-repo',
+        git_branch: 'main',
+        git_commit: 'abc123',
+        execution_duration: 120,
+        api_cost: '$1.50',
+        created_at: new Date('2024-01-01').toISOString(),
+        updated_at: new Date('2024-01-02').toISOString(),
+        completed_at: new Date('2024-01-02').toISOString(),
+      };
+
+      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
+      (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify(wrappedReport));
+      mockListForJob.mockReturnValue({
+        'T-001': { status: 'accepted', note: 'Verified' },
+      });
+
+      const response = await request(app).get('/api/threat-modeling/jobs/job-review');
+
+      expect(response.status).toBe(200);
+      const job = response.body.job;
+      expect(job.threatModel.threats[0].review_status).toBe('accepted');
+      expect(job.threatModel.threats[0].review_note).toBe('Verified');
+      // Risk R-1 links to T-001, so it derives 'accepted'.
+      expect(job.riskRegistry.risks[0].review_status).toBe('accepted');
+    });
   });
+
+  describe('PATCH /api/threat-modeling/jobs/:id/review', () => {
+    it('should set the review status for a finding', async () => {
+      const mockJob = {
+        id: 'job1',
+        user_id: 1,
+        repo_path: '/path/to/repo',
+        query: 'Test query',
+        status: 'completed',
+        report_path: null,
+        data_flow_diagram_path: null,
+        threat_model_path: null,
+        risk_registry_path: null,
+        error_message: null,
+        repo_name: null,
+        git_branch: null,
+        git_commit: null,
+        execution_duration: null,
+        api_cost: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        completed_at: null,
+      };
+      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { ThreatReviewModel } = require('../../models/threatReview');
+
+      const response = await request(app)
+        .patch('/api/threat-modeling/jobs/job1/review')
+        .send({ findingId: 'T-001', status: 'accepted', note: 'Verified' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('success');
+      expect(ThreatReviewModel.upsert).toHaveBeenCalledWith('job1', 'T-001', 'accepted', 'Verified');
+    });
+
+    it('should return 400 for an invalid status', async () => {
+      const mockJob = {
+        id: 'job1', user_id: 1, repo_path: '/path/to/repo', query: null, status: 'completed',
+        report_path: null, data_flow_diagram_path: null, threat_model_path: null,
+        risk_registry_path: null, error_message: null, repo_name: null, git_branch: null,
+        git_commit: null, execution_duration: null, api_cost: null,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(), completed_at: null,
+      };
+      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
+
+      const response = await request(app)
+        .patch('/api/threat-modeling/jobs/job1/review')
+        .send({ findingId: 'T-001', status: 'not-a-status' });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('should return 403 when the job belongs to a different user', async () => {
+      const mockJob = {
+        id: 'job1', user_id: 2, repo_path: '/other', query: null, status: 'completed',
+        report_path: null, data_flow_diagram_path: null, threat_model_path: null,
+        risk_registry_path: null, error_message: null, repo_name: null, git_branch: null,
+        git_commit: null, execution_duration: null, api_cost: null,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(), completed_at: null,
+      };
+      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
+
+      const response = await request(app)
+        .patch('/api/threat-modeling/jobs/job1/review')
+        .send({ findingId: 'T-001', status: 'accepted' });
+
+      expect(response.status).toBe(403);
+      expect(response.body.error).toBe('Access denied');
+    });
+  });
+
+  describe('compare endpoints', () => {
+    it('POST compares against a pasted baseline and reports matches', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const wrappedReport = require('../fixtures/dfd-wrapped-report.json') as {
+        threat_model_report: Record<string, unknown>;
+      };
+      const mockJob = {
+        id: 'job-cmp', user_id: 1, repo_path: '/path/to/repo', query: null, status: 'completed',
+        report_path: '/reports/job-cmp/report.json',
+        data_flow_diagram_path: '/reports/job-cmp/report.json',
+        threat_model_path: '/reports/job-cmp/report.json',
+        risk_registry_path: '/reports/job-cmp/report.json',
+        error_message: null, repo_name: null, git_branch: null, git_commit: null,
+        execution_duration: null, api_cost: null,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+      };
+      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify(wrappedReport));
+
+      const baseline = {
+        executive_summary: 'x',
+        threats: [
+          {
+            id: 'B-1',
+            title: 'SQL Injection',
+            stride_category: 'Tampering',
+            affected_components: ['proc-1'],
+            source_locations: [{ file: 'a.js' }],
+          },
+        ],
+      };
+
+      const response = await request(app)
+        .post('/api/threat-modeling/jobs/job-cmp/compare')
+        .send({ baseline });
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('success');
+      expect(response.body.result.matched).toHaveLength(1);
+      expect(response.body.result.matched[0].tier).toBe('exact');
+      expect(response.body.result.recall).toBe(1);
+    });
+
+    it('POST returns 400 when baseline.threats is missing', async () => {
+      const mockJob = {
+        id: 'job-cmp', user_id: 1, repo_path: '/path/to/repo', query: null, status: 'completed',
+        report_path: null, data_flow_diagram_path: null, threat_model_path: null, risk_registry_path: null,
+        error_message: null, repo_name: null, git_branch: null, git_commit: null,
+        execution_duration: null, api_cost: null,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(), completed_at: null,
+      };
+      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
+
+      const response = await request(app)
+        .post('/api/threat-modeling/jobs/job-cmp/compare')
+        .send({ baseline: {} });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('POST returns 403 when the job belongs to a different user', async () => {
+      const mockJob = {
+        id: 'job-cmp', user_id: 2, repo_path: '/other', query: null, status: 'completed',
+        report_path: null, data_flow_diagram_path: null, threat_model_path: null, risk_registry_path: null,
+        error_message: null, repo_name: null, git_branch: null, git_commit: null,
+        execution_duration: null, api_cost: null,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(), completed_at: null,
+      };
+      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
+
+      const response = await request(app)
+        .post('/api/threat-modeling/jobs/job-cmp/compare')
+        .send({ baseline: { threats: [] } });
+
+      expect(response.status).toBe(403);
+    });
+
+    it('GET compares against another job via baselineJobId', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const wrappedReport = require('../fixtures/dfd-wrapped-report.json') as {
+        threat_model_report: Record<string, unknown>;
+      };
+      const mockJob = {
+        id: 'job-cmp', user_id: 1, repo_path: '/path/to/repo', query: null, status: 'completed',
+        report_path: '/reports/job-cmp/report.json',
+        data_flow_diagram_path: '/reports/job-cmp/report.json',
+        threat_model_path: '/reports/job-cmp/report.json',
+        risk_registry_path: '/reports/job-cmp/report.json',
+        error_message: null, repo_name: null, git_branch: null, git_commit: null,
+        execution_duration: null, api_cost: null,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+      };
+      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify(wrappedReport));
+
+      const response = await request(app)
+        .get('/api/threat-modeling/jobs/job-cmp/compare')
+        .query({ baselineJobId: 'job-base' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.result.matched).toHaveLength(1);
+    });
+  });
+
 
   describe('DELETE /api/threat-modeling/jobs/:id', () => {
     it('should delete a job and its report files', async () => {
@@ -732,6 +983,50 @@ describe('Threat Modeling Routes', () => {
       expect(body).toContain('SOURCE LOCATIONS');
       expect(body).toContain('src/db.py:42');
       expect(body).not.toContain('[object Object]');
+    });
+
+    it('exports review_status column with derived review status', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const wrappedReport = require('../fixtures/dfd-wrapped-report.json') as {
+        threat_model_report: Record<string, unknown>;
+      };
+
+      const mockJob = {
+        id: 'job-csv-review',
+        user_id: 1,
+        repo_path: '/path/to/repo',
+        query: 'Test query',
+        status: 'completed',
+        report_path: '/reports/job-csv-review/report.json',
+        data_flow_diagram_path: '/reports/job-csv-review/report.json',
+        threat_model_path: '/reports/job-csv-review/report.json',
+        risk_registry_path: '/reports/job-csv-review/report.json',
+        error_message: null,
+        repo_name: 'test-repo',
+        git_branch: 'main',
+        git_commit: 'abc123',
+        execution_duration: 120,
+        api_cost: '$1.50',
+        created_at: new Date('2024-01-01').toISOString(),
+        updated_at: new Date('2024-01-02').toISOString(),
+        completed_at: new Date('2024-01-02').toISOString(),
+      };
+
+      ThreatModelingJobModel.findById.mockReturnValue(mockJob);
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify(wrappedReport));
+      mockListForJob.mockReturnValue({
+        'T-001': { status: 'accepted', note: 'Verified' },
+      });
+
+      const response = await request(app)
+        .get('/api/threat-modeling/reports/job-csv-review/download')
+        .query({ format: 'csv' });
+
+      expect(response.status).toBe(200);
+      const body = response.text.replace(/^\uFEFF/, '');
+      expect(body).toContain('REVIEW STATUS');
+      expect(body).toContain('accepted');
     });
   });
 });

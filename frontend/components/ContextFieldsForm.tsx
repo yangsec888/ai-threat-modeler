@@ -1,6 +1,7 @@
 'use client';
 
 import { CONTEXT_FIELD_CAPS, type ContextFields } from '@/types/contextFields';
+import { summarizeContextQuality, isContextTooThin } from '@/lib/contextQuality';
 
 interface FieldConfig {
   key: keyof ContextFields;
@@ -67,6 +68,7 @@ export const ContextFieldsForm = ({
   disabled = false,
   error = null,
 }: ContextFieldsFormProps) => {
+  const quality = summarizeContextQuality(fields);
   return (
     <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
       {status === 'failed' && (
@@ -79,6 +81,18 @@ export const ContextFieldsForm = ({
             {error ?? "Couldn't auto-generate context."}
           </span>{' '}
           Fill in any combination of fields below, or leave them all blank to run without context.
+        </div>
+      )}
+
+      {isContextTooThin(quality) && status !== 'extracting' && (
+        <div
+          className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100"
+          role="alert"
+          data-testid="context-quality-warning"
+        >
+          <span className="font-medium">Context looks thin — results may be weak.</span>{' '}
+          Add architecture, deployment, and security details to ground the analysis, or run anyway
+          and review the findings.
         </div>
       )}
 

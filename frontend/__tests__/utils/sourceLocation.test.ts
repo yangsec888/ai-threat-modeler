@@ -5,6 +5,27 @@ import {
   resolveRiskSourceLocations,
 } from '@/utils/sourceLocation'
 import type { ThreatModelingJob } from '@/types/threatModelingJob'
+import type { Threat } from '@/types/threatModel'
+
+/** Minimal threat-with-locations shape the util reads (id + source_locations). */
+function threatWithLocations(
+  id: string,
+  source_locations: Array<{ file: string; line_numbers?: string }>,
+): Threat {
+  return {
+    id,
+    title: id,
+    stride_category: 'Tampering',
+    severity: 'MEDIUM',
+    affected_components: [],
+    description: '',
+    impact: '',
+    likelihood: 'MEDIUM',
+    mitigation: '',
+    source_locations,
+  }
+}
+
 
 const githubJob: ThreatModelingJob = {
   id: 'job-1',
@@ -45,7 +66,7 @@ describe('sourceLocation utils', () => {
   it('resolveRiskSourceLocations merges from related threats', () => {
     const resolved = resolveRiskSourceLocations(
       { related_threats: ['T-001'] },
-      [{ id: 'T-001', source_locations: [{ file: 'src/db.py', line_numbers: '7' }] }],
+      [threatWithLocations('T-001', [{ file: 'src/db.py', line_numbers: '7' }])],
     )
     expect(formatSourceLocations(resolved)).toBe('src/db.py:7')
   })

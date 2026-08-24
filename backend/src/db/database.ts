@@ -213,6 +213,25 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_threat_modeling_stagings_expires_at ON threat_modeling_stagings(expires_at);
 `);
 
+// Human review loop: per-finding review status for a completed threat-model job.
+// Lives in its own table so it can be updated without mutating the immutable
+// generated report, and joins back at read/export time. Threats only (risks
+// derive status from their related_threats). Cascades on job delete.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS threat_reviews (
+    job_id     TEXT NOT NULL,
+    finding_id TEXT NOT NULL,
+    status     TEXT NOT NULL,
+    note       TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (job_id, finding_id),
+    FOREIGN KEY (job_id) REFERENCES threat_modeling_jobs(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_threat_reviews_job ON threat_reviews(job_id);
+  CREATE INDEX IF NOT EXISTS idx_threat_reviews_job_status ON threat_reviews(job_id, status);
+`);
+
 // Migrate existing users: add password_changed column if it doesn't exist
 try {
   const tableInfo = db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;

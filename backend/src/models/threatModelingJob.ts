@@ -265,6 +265,12 @@ export class ThreatModelingJobModel {
   }
 
   static delete(id: string): void {
+    // Also clean up review rows (belt-and-suspenders alongside the FK cascade).
+    try {
+      db.prepare('DELETE FROM threat_reviews WHERE job_id = ?').run(id);
+    } catch {
+      // Best-effort: if the table doesn't exist yet (fresh DB), ignore.
+    }
     const stmt = db.prepare('DELETE FROM threat_modeling_jobs WHERE id = ?');
     stmt.run(id);
   }

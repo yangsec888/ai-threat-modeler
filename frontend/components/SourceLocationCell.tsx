@@ -14,7 +14,15 @@ export const SourceLocationCell = ({ locations, job }: SourceLocationCellProps) 
   const [openIndex, setOpenIndex] = useState<number | null>(null)
 
   if (!locations?.length) {
-    return <span className="text-muted-foreground">—</span>
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-100"
+        title="No source location found — verify this finding against the code"
+        data-testid="ungrounded-badge"
+      >
+        ⚠ Ungrounded — verify
+      </span>
+    )
   }
 
   return (

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-08-24
+
+### Added
+
+- **Human review decisions are captured, persisted, and exported per threat finding** (the review-loop gap the OWASP community reviewers flagged). A new `threat_reviews` table stores each finding's status (`unreviewed`/`accepted`/`mitigated`/`false_positive`/`needs_review`) plus an optional note, without mutating the immutable generated report. `PATCH /api/threat-modeling/jobs/:id/review` upserts a decision behind the existing auth + ownership guards, and every job read/export merges `review_status`/`review_note` back onto each threat. The report UI shows a per-threat status `<select>` with a color-coded badge (green = accepted, orange = needs_review, red = false_positive, blue = mitigated), and the backend CSV gains a `review_status` column so the decision rides along in exports.
+- **A context-quality (GIGO) warning surfaces before a thin scan runs.** The threat-model output is only as good as the context fed to it, so the UI now classifies the six context fields as `none`/`thin`/`ok`/`rich` (a field only counts once it holds a meaningful value, and a deployment context pushes rich). When the user is about to run a model on thin input, a clear pre-run warning tells them the context is too sparse to trust the output.
+- **Baseline comparison to answer "did the scan do a good job?"** A new report tab lets the user paste a hand-built/vendor threat-model JSON (a `threats` array) — or compare against another completed job — to cross-check the generated model. The comparator reports matched findings (with an exact/fuzzy confidence tier, discounting ungrounded findings), missed baseline findings, and extra generated findings. Exposed as `POST /api/threat-modeling/jobs/:id/compare` (pasted baseline) and `GET /api/threat-modeling/jobs/:id/compare?baselineJobId=` (prior job), with cross-account access guarded.
+
+### Changed
+
+- **Root, backend, and frontend package versions bumped to `3.2.0`.**
+
 ## [3.1.0] - 2026-08-20
 
 ### Added

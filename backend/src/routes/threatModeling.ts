@@ -44,6 +44,104 @@ const router = Router();
 // Base directory name for reports (relative to process.cwd())
 const REPORTS_DIR_NAME = 'threat-modeling-reports';
 
+import { ThreatReviewModel, isReviewStatus, REVIEW_STATUSES } from '../models/threatReview';
+import {
+  compareThreatSets,
+  type CompareFinding,
+} from '../services/reportComparator';
+
+/**
+ * Merge persisted review status/note onto threat and risk objects.
+ *
+ * Threat reviews live in the `threat_reviews` table (threats only). Risks
+ * derive their review status from the threats they link to via
+ * `related_threats`. Shared by GET /jobs/:id and both export paths (JSON
+ * download + CSV) so every surface presents the same single source of truth.
+ */
+function mergeThreatReviews(
+  threatModel: { threats: Array<Record<string, unknown>> } | null,
+  riskRegistry: { risks: Array<Record<string, unknown>> } | null,
+  jobId: string,
+): void {
+  const reviews = ThreatReviewModel.listForJob(jobId);
+
+  if (threatModel?.threats) {
+    for (const threat of threatModel.threats) {
+      const findingId = String(threat.id ?? '');
+      const review = findingId ? reviews[findingId] : undefined;
+      if (review) {
+        threat.review_status = review.status;
+        threat.review_note = review.note;
+      }
+    }
+  }
+
+  // Derive risk review status from the review statuses of linked threats.
+  if (riskRegistry?.risks) {
+    const statusByThreat: Record<string, string> = {};
+    for (const [findingId, review] of Object.entries(reviews)) {
+      statusByThreat[findingId] = review.status;
+    }
+    for (const risk of riskRegistry.risks) {
+      const related = Array.isArray(risk.related_threats)
+        ? (risk.related_threats as unknown[])
+        : [];
+      const statuses = related
+        .filter((t): t is string => typeof t === 'string')
+        .map((tid) => statusByThreat[tid])
+        .filter((s): s is string => !!s);
+      if (statuses.length > 0) {
+        risk.review_status = statuses[0];
+      }
+    }
+  }
+}
+/**
+ * Load the generated threat list from a completed job's report file and map
+ * each finding into the shape the comparator expects.
+ */
+function loadGeneratedThreatModel(job: {
+  status: string;
+  data_flow_diagram_path: string | null;
+  threat_model_path: string | null;
+  risk_registry_path: string | null;
+  report_path: string | null;
+}): CompareFinding[] {
+  if (job.status !== 'completed') return [];
+  const reportPath = job.data_flow_diagram_path || job.threat_model_path || job.risk_registry_path || job.report_path;
+  const resolvedPath = resolveReportPath(reportPath);
+  if (!resolvedPath) return [];
+  const rawContent = readReportContent(resolvedPath);
+  if (!rawContent) return [];
+  try {
+    const report = JSON.parse(rawContent);
+    const threats = report.threat_model_report?.threat_model?.threats ?? [];
+    return threats.map((t: Record<string, unknown>) => ({
+      id: String(t.id ?? ''),
+      title: String(t.title ?? ''),
+      category: String(t.stride_category ?? t.threat_class ?? t.type ?? ''),
+      components: Array.isArray(t.affected_components) ? t.affected_components.map(String) : [],
+      sourceLocations: Array.isArray(t.source_locations) ? t.source_locations : [],
+    }));
+  } catch (parseErr) {
+    logger.warn(`⚠️ Could not parse report JSON for comparison job:`, parseErr);
+    return [];
+  }
+}
+
+/** Map an incoming baseline threat object to a comparator finding (tolerant of casing/keys). */
+function mapBaselineThreat(t: Record<string, unknown>): CompareFinding {
+  return {
+    id: String(t.id ?? ''),
+    title: String(t.title ?? ''),
+    category: String(t.stride_category ?? t.threat_class ?? t.type ?? t.category ?? ''),
+    components: Array.isArray(t.affected_components) ? t.affected_components.map(String) : [],
+    sourceLocations: Array.isArray(t.source_locations) ? t.source_locations : [],
+  };
+}
+
+
+
 // Wall-clock budget for the optional adversarial second pass. It only refines
 // the first-pass report (filters false positives), so it must never hold the
 // whole job hostage: slow reasoning models (e.g. Kimi) on a large first-pass
@@ -1130,6 +1228,9 @@ router.get('/jobs/:id', authenticateToken, (req: AuthRequest, res: Response) => 
       }
     }
 
+    // Merge persisted human review status/note onto threats (and derive for risks).
+    mergeThreatReviews(threatModel, riskRegistry, id);
+
     res.json({
       status: 'success',
       job: {
@@ -1175,6 +1276,118 @@ router.get('/jobs/:id', authenticateToken, (req: AuthRequest, res: Response) => 
     res.status(500).json({ error: 'Failed to get job', message });
   }
 });
+
+// PATCH /api/threat-modeling/jobs/:id/review - Set the review status of a finding
+// Body: { findingId: string, status: 'unreviewed'|'accepted'|'mitigated'|'false_positive'|'needs_review', note?: string }
+router.patch('/jobs/:id/review', authenticateToken, (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId!;
+    const userRole = req.userRole;
+
+    const job = ThreatModelingJobModel.findById(id);
+    if (userRole !== 'Auditor' && job.user_id !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { findingId, status, note } = req.body ?? {};
+    if (typeof findingId !== 'string' || findingId.length === 0) {
+      return res.status(400).json({ error: 'findingId is required' });
+    }
+    if (!isReviewStatus(status)) {
+      return res.status(400).json({
+        error: `status must be one of: ${REVIEW_STATUSES.join(', ')}`,
+      });
+    }
+
+    const review = ThreatReviewModel.upsert(
+      id,
+      findingId,
+      status,
+      typeof note === 'string' ? note : null,
+    );
+
+    res.json({ status: 'success', review });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error occurred';
+    if (message.includes('not found')) {
+      return res.status(404).json({ error: 'Job not found', message });
+    }
+    logger.error('Update threat review error:', error);
+    res.status(500).json({ error: 'Failed to update review', message });
+  }
+});
+// POST /api/threat-modeling/jobs/:id/compare - Compare against a pasted/vendor baseline
+router.post('/jobs/:id/compare', authenticateToken, (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId!;
+    const userRole = req.userRole;
+
+    const job = ThreatModelingJobModel.findById(id);
+    if (userRole !== 'Auditor' && job.user_id !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const generated = loadGeneratedThreatModel(job);
+    const baselineBody = (req.body ?? {}).baseline as { threats?: unknown } | undefined;
+    const baselineThreats = baselineBody?.threats;
+    if (!Array.isArray(baselineThreats)) {
+      return res.status(400).json({
+        error: 'baseline.threats is required and must be an array',
+      });
+    }
+
+    const baseline = baselineThreats.map((t) => mapBaselineThreat(t as Record<string, unknown>));
+    const result = compareThreatSets(generated, baseline);
+    res.json({ status: 'success', result });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error occurred';
+    if (message.includes('not found')) {
+      return res.status(404).json({ error: 'Job not found', message });
+    }
+    logger.error('Compare threat model error:', error);
+    res.status(500).json({ error: 'Failed to compare models', message });
+  }
+});
+
+// GET /api/threat-modeling/jobs/:id/compare?baselineJobId=<id> - Compare against another completed job
+router.get('/jobs/:id/compare', authenticateToken, (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId!;
+    const userRole = req.userRole;
+
+    const job = ThreatModelingJobModel.findById(id);
+    if (userRole !== 'Auditor' && job.user_id !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const baselineJobId = String(req.query.baselineJobId ?? '');
+    if (!baselineJobId) {
+      return res.status(400).json({ error: 'baselineJobId query param is required' });
+    }
+
+    const baselineJob = ThreatModelingJobModel.findById(baselineJobId);
+    if (userRole !== 'Auditor' && baselineJob.user_id !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const generated = loadGeneratedThreatModel(job);
+    const baseline = loadGeneratedThreatModel(baselineJob);
+    const result = compareThreatSets(generated, baseline);
+    res.json({ status: 'success', result });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error occurred';
+    if (message.includes('not found')) {
+      return res.status(404).json({ error: 'Job not found', message });
+    }
+    logger.error('Compare threat model error:', error);
+    res.status(500).json({ error: 'Failed to compare models', message });
+  }
+});
+
+
 
 // DELETE /api/threat-modeling/jobs/:id - Delete a threat modeling job
 router.delete('/jobs/:id', authenticateToken, (req: AuthRequest, res: Response) => {
@@ -1332,21 +1545,25 @@ router.get('/reports/:jobId/download', authenticateToken, (req: AuthRequest, res
       // Export risk registry as CSV
       const rawContent = fs.readFileSync(filePath, 'utf-8');
       const report = JSON.parse(rawContent);
-      const risks = report.threat_model_report?.risk_registry?.risks || [];
+      const riskRegistry = report.threat_model_report?.risk_registry || { risks: [] };
+      const threats = report.threat_model_report?.threat_model?.threats ?? [];
+      const risks = riskRegistry.risks || [];
       
       if (risks.length === 0) {
         return res.status(404).json({ error: 'No risks found in the report' });
       }
       
+      // Merge persisted review status/note onto threats + derived risks.
+      mergeThreatReviews({ threats }, { risks }, jobId);
+
       const columns = [
         'id', 'title', 'category', 'stride_category', 'severity',
         'current_risk_score', 'residual_risk_score', 'description',
         'affected_components', 'business_impact', 'remediation_plan',
         'effort_estimate', 'cost_estimate', 'timeline', 'related_threats',
-        'source_locations',
+        'review_status', 'review_note', 'source_locations',
       ];
 
-      const threats = report.threat_model_report?.threat_model?.threats ?? [];
       
       const escapeCSV = (val: unknown): string => {
         const str = Array.isArray(val) ? val.join(', ') : String(val ?? '');
@@ -1386,8 +1603,15 @@ router.get('/reports/:jobId/download', authenticateToken, (req: AuthRequest, res
       res.attachment(`risk_registry_${jobId}.csv`);
       res.send(csvContent);
     } else {
-      // Download the full JSON report
-      res.download(filePath, `threat_model_report_${jobId}.json`);
+      // Download the full JSON report with review status merged in.
+      const rawContent = fs.readFileSync(filePath, 'utf-8');
+      const report = JSON.parse(rawContent);
+      const threatModel = report.threat_model_report?.threat_model ?? null;
+      const riskRegistry = report.threat_model_report?.risk_registry ?? null;
+      mergeThreatReviews(threatModel, riskRegistry, jobId);
+      res.setHeader('Content-Type', 'application/json');
+      res.attachment(`threat_model_report_${jobId}.json`);
+      res.send(JSON.stringify(report));
     }
   } catch (error: unknown) {
     logger.error('Download report error:', error);

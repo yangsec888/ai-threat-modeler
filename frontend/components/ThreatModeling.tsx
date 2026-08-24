@@ -262,7 +262,7 @@ export function ThreatModeling() {
       }
       setJobs((prev) => [newJob, ...prev])
       setPollingJobs((prev) => new Set([...prev, response.jobId]))
-      success('Threat modeling job started!')
+      success('Scan started — review the findings, then track fixes.')
       uploadStaging.reset()
       setSelectedDirectory(null)
       setDirectoryName('')

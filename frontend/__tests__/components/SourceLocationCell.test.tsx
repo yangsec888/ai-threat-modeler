@@ -24,9 +24,10 @@ const githubJob: ThreatModelingJob = {
 }
 
 describe('<SourceLocationCell />', () => {
-  it('renders em dash when no locations', () => {
+  it('renders an ungrounded badge when no locations', () => {
     render(<SourceLocationCell locations={undefined} job={githubJob} />)
-    expect(screen.getByText('—')).toBeInTheDocument()
+    expect(screen.getByTestId('ungrounded-badge')).toBeInTheDocument()
+    expect(screen.getByText(/Ungrounded — verify/i)).toBeInTheDocument()
   })
 
   it('expands snippet and GitHub link on click', async () => {

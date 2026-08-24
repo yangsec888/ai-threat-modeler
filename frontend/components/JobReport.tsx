@@ -13,6 +13,8 @@ import {
   formatSourceLocations,
   resolveRiskSourceLocations,
 } from '@/utils/sourceLocation'
+import { api } from '@/lib/api'
+import { CompareBaseline } from '@/components/CompareBaseline'
 
 const SEVERITY_COLORS: Record<string, string> = {
   CRITICAL: 'bg-red-100 text-red-800',
@@ -28,6 +30,14 @@ const STRIDE_COLORS: Record<string, string> = {
   'Information Disclosure': 'bg-cyan-100 text-cyan-800',
   'Denial of Service': 'bg-red-100 text-red-800',
   'Elevation of Privilege': 'bg-indigo-100 text-indigo-800',
+}
+
+const REVIEW_COLORS: Record<string, string> = {
+  accepted: 'bg-green-100 text-green-800',
+  mitigated: 'bg-blue-100 text-blue-800',
+  false_positive: 'bg-red-100 text-red-800',
+  needs_review: 'bg-orange-100 text-orange-800',
+  unreviewed: 'bg-gray-100 text-gray-800',
 }
 
 function SeverityBadge({ severity }: { severity: string }) {
@@ -50,6 +60,52 @@ function StrideBadge({ category }: { category: string }) {
   )
 }
 
+function humanizeReviewStatus(status: string): string {
+  return status
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+function ReviewStatusBadge({ status }: { status?: string }) {
+  const normalized = status && status !== 'unreviewed' ? status : null
+  if (!normalized) {
+    return <span className="text-xs text-muted-foreground">Unreviewed</span>
+  }
+  return (
+    <span
+      className={`px-2 py-0.5 rounded text-xs font-medium ${REVIEW_COLORS[normalized] || 'bg-gray-100 text-gray-800'}`}
+    >
+      {humanizeReviewStatus(normalized)}
+    </span>
+  )
+}
+
+/** Turn any unknown review value into a known status, defaulting to 'unreviewed'. */
+function normalizeReviewStatus(value: unknown): string {
+  return typeof value === 'string' &&
+    ['unreviewed', 'accepted', 'mitigated', 'false_positive', 'needs_review'].includes(value)
+    ? value
+    : 'unreviewed'
+}
+
+/**
+ * Derive a risk's review status from the review statuses of the threats it
+ * links to via `related_threats`. Returns the first meaningful
+ * (non-unreviewed) status, or 'unreviewed' if all linked threats are
+ * unreviewed.
+ */
+function deriveRiskReviewStatus(
+  risk: Risk,
+  statusByThreat: Record<string, string>,
+): string {
+  for (const tid of risk.related_threats ?? []) {
+    const status = normalizeReviewStatus(statusByThreat[tid])
+    if (status && status !== 'unreviewed') return status
+  }
+  return 'unreviewed'
+}
+
 export interface JobReportProps {
   job: ThreatModelingJob
   onToastSuccess: (message: string) => void
@@ -60,6 +116,31 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
   const [reportTab, setReportTab] = useState('data_flow_diagram')
   const [threatHighlightNodeId, setThreatHighlightNodeId] = useState<string | null>(null)
   const dfdCanvasRef = useRef<DfdCanvasHandle | null>(null)
+
+  // Human review loop: per-threat review status, initialized from the report
+  // (the API merges `review_status`/`review_note` onto each threat).
+  const [reviewStatuses, setReviewStatuses] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {}
+    for (const threat of job.threatModel?.threats ?? []) {
+      initial[threat.id] = normalizeReviewStatus(threat.review_status)
+    }
+    return initial
+  })
+
+  const handleReviewChange = (threatId: string, status: string) => {
+    const previous = reviewStatuses[threatId]
+    setReviewStatuses((prev) => ({ ...prev, [threatId]: status }))
+    api
+      .updateThreatReview(job.id, { findingId: threatId, status })
+      .then(() => onToastSuccess('Review status saved'))
+      .catch((err: unknown) => {
+        // Revert optimistic update on failure.
+        setReviewStatuses((prev) => ({ ...prev, [threatId]: previous }))
+        onToastError(
+          err instanceof Error ? `Failed to save review: ${err.message}` : 'Failed to save review',
+        )
+      })
+  }
 
   const filteredThreats = useMemo(() => {
     const threats = job.threatModel?.threats
@@ -83,7 +164,7 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
     }
 
     try {
-      const columns: Array<keyof Risk | 'source_locations'> = [
+      const columns: Array<keyof Risk | 'source_locations' | 'review_status'> = [
         'id',
         'title',
         'category',
@@ -99,6 +180,7 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
         'cost_estimate',
         'timeline',
         'related_threats',
+        'review_status',
         'source_locations',
       ]
 
@@ -121,6 +203,9 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
                   resolveRiskSourceLocations(risk, threats),
                 ),
               )
+            }
+            if (col === 'review_status') {
+              return escapeCSV(deriveRiskReviewStatus(risk, reviewStatuses))
             }
             return escapeCSV(risk[col as keyof Risk])
           })
@@ -240,7 +325,7 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
 
         autoTable(doc, {
           startY,
-          head: [['ID', 'Title', 'STRIDE', 'Severity', 'Likelihood', 'Location', 'Impact', 'Mitigation']],
+          head: [['ID', 'Title', 'STRIDE', 'Severity', 'Likelihood', 'Location', 'Review', 'Impact', 'Mitigation']],
           body: tm.threats.map((t) => [
             t.id,
             t.title,
@@ -248,6 +333,7 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
             t.severity,
             t.likelihood,
             formatSourceLocations(t.source_locations) || '—',
+            normalizeReviewStatus(reviewStatuses[t.id]),
             t.impact,
             t.mitigation,
           ]),
@@ -286,7 +372,7 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
       }}
       className="w-full"
     >
-      <TabsList className="grid w-full grid-cols-3">
+      <TabsList className="grid w-full grid-cols-4">
         <TabsTrigger value="data_flow_diagram">Data Flow Diagram</TabsTrigger>
         <TabsTrigger value="threat_model">
           Threat Model{' '}
@@ -298,6 +384,7 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
           {job.metadata?.total_risks_identified != null &&
             `(${job.metadata.total_risks_identified})`}
         </TabsTrigger>
+        <TabsTrigger value="compare">Compare to Baseline</TabsTrigger>
       </TabsList>
 
       <TabsContent value="data_flow_diagram" className="space-y-4 mt-4">
@@ -372,6 +459,7 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
                     <th className="text-left p-2 font-medium">Mitigation</th>
                     <th className="text-left p-2 font-medium">References</th>
                     <th className="text-left p-2 font-medium">Location</th>
+                    <th className="text-left p-2 font-medium">Review</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -406,6 +494,22 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
                       </td>
                       <td className="p-2 min-w-[140px]">
                         <SourceLocationCell locations={threat.source_locations} job={job} />
+                      </td>
+                      <td className="p-2 min-w-[160px] space-y-1">
+                        <ReviewStatusBadge status={reviewStatuses[threat.id]} />
+                        <select
+                          data-testid={`review-select-${threat.id}`}
+                          aria-label={`Review status for ${threat.title}`}
+                          value={normalizeReviewStatus(reviewStatuses[threat.id])}
+                          onChange={(e) => handleReviewChange(threat.id, e.target.value)}
+                          className="block w-full text-xs rounded border bg-background px-2 py-1"
+                        >
+                          <option value="unreviewed">Unreviewed</option>
+                          <option value="accepted">Accepted</option>
+                          <option value="mitigated">Mitigated</option>
+                          <option value="false_positive">False positive</option>
+                          <option value="needs_review">Needs review</option>
+                        </select>
                       </td>
                     </tr>
                   ))}
@@ -456,6 +560,7 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
                     <th className="text-left p-2 font-medium">Timeline</th>
                     <th className="text-left p-2 font-medium">Related Threats</th>
                     <th className="text-left p-2 font-medium">Location</th>
+                    <th className="text-left p-2 font-medium">Review</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -491,6 +596,9 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
                           job={job}
                         />
                       </td>
+                      <td className="p-2 min-w-[120px]">
+                        <ReviewStatusBadge status={deriveRiskReviewStatus(risk, reviewStatuses)} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -502,6 +610,10 @@ export const JobReport = ({ job, onToastSuccess, onToastError }: JobReportProps)
             <p>Risk Registry not available.</p>
           </div>
         )}
+      </TabsContent>
+
+      <TabsContent value="compare" className="space-y-4 mt-4">
+        <CompareBaseline job={job} onToastSuccess={onToastSuccess} onToastError={onToastError} />
       </TabsContent>
     </Tabs>
   )

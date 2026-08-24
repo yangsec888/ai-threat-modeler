@@ -53,7 +53,21 @@ export interface Threat {
   mitigation: string
   references?: string[]
   source_locations?: SourceLocation[]
+  // Merged from the threat_reviews table at the API layer (human review loop).
+  review_status?: ReviewStatus
+  review_note?: string | null
 }
+
+/** Human review decisions for a generated threat finding. */
+export type ReviewStatus = 'unreviewed' | 'accepted' | 'mitigated' | 'false_positive' | 'needs_review'
+
+export const REVIEW_STATUS_OPTIONS: ReviewStatus[] = [
+  'unreviewed',
+  'accepted',
+  'mitigated',
+  'false_positive',
+  'needs_review',
+]
 
 export interface ThreatModel {
   executive_summary: string
@@ -97,3 +111,27 @@ export interface Recommendation {
   description: string
   priority: 'HIGH' | 'MEDIUM' | 'LOW'
 }
+
+/** Shape of a single finding used by the baseline-comparison results. */
+export interface ComparisonFinding {
+  id?: string
+  title: string
+  category?: string
+  components?: string[]
+}
+
+export interface MatchedComparisonFinding {
+  generated: ComparisonFinding
+  baseline: ComparisonFinding
+  tier: 'exact' | 'fuzzy'
+  confidence: number
+}
+
+export interface ThreatModelComparison {
+  matched: MatchedComparisonFinding[]
+  missed: ComparisonFinding[]
+  extra: ComparisonFinding[]
+  recall: number
+  precision: number
+}
+

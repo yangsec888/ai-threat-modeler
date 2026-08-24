@@ -43,6 +43,7 @@ jest.mock('express', () => {
     post: jest.fn().mockReturnThis(),
     delete: jest.fn().mockReturnThis(),
     put: jest.fn().mockReturnThis(),
+    patch: jest.fn().mockReturnThis(),
     use: jest.fn().mockReturnThis(),
   });
   return { Router: mockRouter, default: mockRouter };

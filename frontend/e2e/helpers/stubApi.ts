@@ -15,7 +15,18 @@ function loadStagingDraft(): Record<string, string | null> {
   return JSON.parse(fs.readFileSync(p, 'utf-8')) as Record<string, string | null>
 }
 
-const defaultOctocatRepo = {
+interface GithubRepoInfo {
+  owner: string
+  repo: string
+  normalizedUrl: string
+  defaultBranch: string
+  isPrivate: boolean
+  description: string | null
+  branches: string[]
+  tags: string[]
+}
+
+const defaultOctocatRepo: GithubRepoInfo = {
   owner: 'octocat',
   repo: 'Hello-World',
   normalizedUrl: 'https://github.com/octocat/Hello-World',
@@ -24,12 +35,12 @@ const defaultOctocatRepo = {
   description: 'My first repository on GitHub.',
   branches: ['main', 'dev'],
   tags: ['v1.0', 'v0.9'],
-} as const
+}
 
 /** Stub GitHub token + check-repo for Import from GitHub e2e flows. */
 export async function stubGithubApis(
   page: Page,
-  checkRepoBody?: { hasToken?: boolean; repoInfo?: typeof defaultOctocatRepo & { isPrivate?: boolean } },
+  checkRepoBody?: { hasToken?: boolean; repoInfo?: GithubRepoInfo },
 ): Promise<void> {
   await page.route('**/api/github/token', async (route) => {
     if (route.request().method() === 'GET') {

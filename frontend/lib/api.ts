@@ -16,6 +16,7 @@ const getApiBaseUrl = (): string => {
 
 import type { ContextFields } from '@/types/contextFields';
 import type { ThreatModelingJob } from '@/types/threatModelingJob';
+import type { ThreatModel, ThreatModelComparison } from '@/types/threatModel';
 
 export interface GetThreatModelingJobResult {
   job: ThreatModelingJob | null;
@@ -266,6 +267,45 @@ export const api = {
         error: 'Failed to load job',
       };
     }
+  },
+
+  updateThreatReview: async (
+    jobId: string,
+    payload: { findingId: string; status: string; note?: string | null },
+  ) => {
+    const response = await fetch(`${API_BASE_URL}/threat-modeling/jobs/${jobId}/review`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      handleAuthError(response);
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+      throw new Error(errorData.error || errorData.message || 'Failed to update review');
+    }
+
+    return response.json();
+  },
+
+  compareThreatModel: async (
+    jobId: string,
+    baseline: ThreatModel,
+  ): Promise<ThreatModelComparison> => {
+    const response = await fetch(`${API_BASE_URL}/threat-modeling/jobs/${jobId}/compare`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ baseline }),
+    });
+
+    if (!response.ok) {
+      handleAuthError(response);
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+      throw new Error(errorData.error || errorData.message || 'Failed to compare models');
+    }
+
+    const data = (await response.json()) as { result: ThreatModelComparison };
+    return data.result;
   },
 
   downloadThreatModelingReport: async (jobId: string, format: 'json' | 'csv' = 'json') => {

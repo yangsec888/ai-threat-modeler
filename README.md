@@ -1,10 +1,19 @@
 # AI Threat Modeler
 
-**Point it at a codebase. Get a security threat model back.**
+**Point it at a codebase. Get a security threat model *artifact* back — to review, challenge, and feed into your real threat modeling process.**
 
-Upload a ZIP or import a GitHub repo, and AI Threat Modeler produces a [STRIDE](https://en.wikipedia.org/wiki/STRIDE_model) threat model: a data-flow diagram, ranked threats, and a risk registry — with **links to the exact source files and line numbers** whenever the AI agent can ground them in real code.
+Upload a ZIP or import a GitHub repo, and AI Threat Modeler produces a [STRIDE](https://en.wikipedia.org/wiki/STRIDE_model)-flavored **threat-model artifact**: a data-flow diagram, candidate threats, and a risk registry — with **links to the exact source files and line numbers** whenever the AI agent can ground them in real code. An optional adversarial pass drops findings with no code evidence.
 
-Built for AppSec teams who want AI-assisted threat modeling without losing traceability to actual code. **You don't need to be a security expert to use it.**
+Built for AppSec teams who want a **code-review scanner that speaks threat-modeling vocabulary** and stays traceable to actual code.
+
+## What this is (and isn't)
+
+Be clear about what you're getting, because the distinction matters:
+
+- **This is an AI-assisted code-review / threat-discovery scanner.** It turns a codebase into a *starting catalog* of DFD + STRIDE findings + risks, each anchored to a real `file:line`.
+- **This is not a threat modeling *process* in itself.** Per the [Threat Modeling Manifesto](https://www.threatmodelingmanifesto.org/), threat modeling is a **people-first, iterative activity** driven by dialog and varied viewpoints. A scanner can't do that for you. Think of the output as **SAST-with-narrative**: rich, well-grounded input that your team elevates into a living threat model — *not* a replacement for the human review, design discussions, and refinement that make threat modeling work.
+
+The value you get out is proportional to what you put in (**garbage in, garbage out**) and to how seriously your team does the **human-in-the-loop review** — verifying the diagram, triangulating findings against the code, and adding the business/design context a scanner can't see. See **[How to use the output](./docs/how-to-use-the-output.md)** for the full workflow, and how to use it as a *did-we-do-a-good-enough-job* check against an existing hand-built threat model.
 
 ## 📹 Demo
 
@@ -31,22 +40,22 @@ docker-compose up -d --build
 
 ## What you get
 
-After a job completes, open the report:
+After a job completes, open the report — a set of **artifacts for your review**, not a final verdict:
 
 | Tab | Contents |
 |-----|----------|
-| **Data Flow Diagram** | Interactive diagram with trust boundaries; click a node to see related threats and source files |
-| **Threat Model** | STRIDE threats with severity, mitigation, and **Location** (file:line, snippet, GitHub link when imported from GitHub) |
-| **Risk Registry** | Risks cross-linked to threats, with remediation plans |
+| **Data Flow Diagram** | Interactive diagram with trust boundaries; click a node to see related candidate threats and source files. **Verify this against your real architecture first** — findings built on a wrong diagram are suspect. |
+| **Threat Model** | Candidate STRIDE threats with severity, mitigation, and **Location** (file:line, snippet, GitHub link when imported from GitHub). Treat each as a *hypothesis to verify in code*, not a conclusion. |
+| **Risk Registry** | Risks cross-linked to threats, with remediation plans — raw material for your team's decisions and tracked remediation. |
 
-Export to **PDF**, **CSV** (Excel-friendly), or **JSON**.
+Export to **PDF**, **CSV** (Excel-friendly), or **JSON**, so you can pull the findings into your issue tracker and threat modeling practice of record.
 
 ## How it works
 
 Every job runs a short **stage → run** flow so the AI understands your deployment, not just your code:
 
-1. **Analyze** — the app auto-fills six editable context fields (project summary, security context, deployment context, and more). Edit them or leave them blank.
-2. **Run** — the agent produces the full STRIDE report, and it shows live status on the dashboard.
+1. **Analyze** — the app auto-fills six editable context fields (project summary, security context, deployment context, developer guidance, suggested exclusions, and notes). **This is your highest-leverage input** — edit it with real deployment and business context; the artifact only comes back as good as what you put in.
+2. **Run** — the agent produces the full STRIDE artifact, and it shows live status on the dashboard. Then **your team reviews** it (see [How to use the output](./docs/how-to-use-the-output.md)).
 
 ## Model providers
 
