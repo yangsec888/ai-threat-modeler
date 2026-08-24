@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-08-24
+
+### Fixed
+
+- **The default `admin` account can now actually manage settings and users.** A fresh-instance bug created the default `admin` user with the role `Auditor` (`UserModel.create` defaults the role parameter to `'Auditor'` and the seeder never passed one), and because the settings/users routes require `role === 'Admin`, the admin account was silently locked out of Settings and user management. `defaultUser.ts` now passes the `Admin` role explicitly on create; existing installs that already have the mis-role'd row are self-healed on startup (the seeder re-promotes `admin` to `Admin`). Covered by regression tests verifying the created role and the repair path.
+
+### Changed
+
+- **Root, backend, and frontend package versions bumped to `3.2.1`.**
+
 ## [3.2.0] - 2026-08-24
 
 ### Added

@@ -29,6 +29,9 @@ describe('initializeDefaultAdmin', () => {
     expect(admin?.username).toBe('admin');
     expect(admin?.email).toBe('admin@localhost');
     expect(admin?.password_changed).toBe(0); // false
+    // Regression: the default admin MUST be an Admin, not the Auditor that
+    // UserModel.create (and the old seeder) would otherwise assign.
+    expect(admin?.role).toBe('Admin');
   });
 
   it('should not create admin user if it already exists', async () => {
@@ -42,6 +45,18 @@ describe('initializeDefaultAdmin', () => {
     const stmt = db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?');
     const result = stmt.get('admin') as { count: number };
     expect(result.count).toBe(1);
+  });
+
+  it('should repair an existing admin user whose role is not Admin (fresh-instance bug)', async () => {
+    // Simulate the bug: default admin created as Auditor (as the old seeder did).
+    await UserModel.create('admin', 'admin@localhost', 'admin', false, 'Auditor');
+    const before = UserModel.findByUsername('admin');
+    expect(before?.role).toBe('Auditor');
+
+    await initializeDefaultAdmin();
+
+    const after = UserModel.findByUsername('admin');
+    expect(after?.role).toBe('Admin');
   });
 
   it('should handle errors gracefully when create fails', async () => {
