@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.3] - 2026-08-25
+
+Housekeeping and a non-breaking backend refactor. No schema-version bump, no breaking change.
+
+### Changed
+
+- **Report regime-metadata stamping extracted into a unit-tested helper.** The inline block that stamps `llm_provider` / `model` / `reasoning_effort` / `threat_adversary_enabled` / `adversary_review_applied` into each shipped report's `metadata` (and rewrites the JSON in place) is now the exported `stampReportRegimeMetadata`, with backend tests asserting the injection. Behavior is unchanged — the same fields are set, after the optional adversarial swap, on the final report object.
+- **`appsec-agent` resolved from the npm registry.** The root lockfile previously carried a stale `file:../appsec-agent` local link, which broke the root `tsc` build on any machine without the sibling repo built. It now resolves `appsec-agent@4.0.2` from the published registry package, matching the backend.
+
+### Security
+
+- **MIT license declared in backend and frontend package metadata.** The repo's `LICENSE` (MIT) is now mirrored in `backend/package.json` and `frontend/package.json` so package consumers see the license consistently.
+
 ## [3.2.2] - 2026-08-24
 
 The four source-review findings from issue #2, plus a disclosure path requested in the same review. Patch release: no schema-version bump, no breaking change.
