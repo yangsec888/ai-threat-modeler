@@ -4,13 +4,13 @@
 
 Upload a ZIP or import a GitHub repo, and AI Threat Modeler produces a [STRIDE](https://en.wikipedia.org/wiki/STRIDE_model)-flavored **threat-model artifact**: a data-flow diagram, candidate threats, and a risk registry — with **links to the exact source files and line numbers** whenever the AI agent can ground them in real code. An optional adversarial pass drops findings with no code evidence.
 
-Built for AppSec teams who want a **code-review scanner that speaks threat-modeling vocabulary** and stays traceable to actual code.
+Built for AppSec teams who want **threat modeling grounded in the actual code** — traceable, reviewable, and always current.
 
 ## What this is (and isn't)
 
 Be clear about what you're getting, because the distinction matters:
 
-- **This is an AI-assisted code-review / threat-discovery scanner.** It turns a codebase into a *starting catalog* of DFD + STRIDE findings + risks, each anchored to a real `file:line`.
+- **This is an AI threat modeler grounded in code.** It turns a codebase into a *starting catalog* of DFD + STRIDE findings + risks, each anchored to a real `file:line`.
 - **This is grounded in code.** Our working principle is short and concrete: **identify the threat, ground the truth in code, then act on it.** Every finding is anchored to a real `file:line`, and claims without code evidence are dropped. The result is concrete, reviewable input your team can act on — the code is the source of truth, and your team brings the judgment to act on it.
 
 The value you get out is proportional to what you put in (**garbage in, garbage out**) and to how seriously your team **acts on the findings** — verifying the diagram, triangulating claims against the code, and adding the business/design context that lives outside the codebase. See **[How to use the output](./docs/how-to-use-the-output.md)** for the full workflow, and how to use it as a *did-we-do-a-good-enough-job* check against an existing hand-built threat model.

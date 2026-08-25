@@ -1,6 +1,6 @@
 # What this is (and isn't): where the tool fits in your threat modeling
 
-This is an **AI-assisted code-review / threat-discovery scanner** that generates a batch of *artifacts* — a data-flow diagram, STRIDE-flavored findings, a source-anchored risk registry, and a JSON export. Its job is to help you **identify the threat, ground the truth in code rather than in human discussion, and then act on it.**
+AI Threat Modeler turns a codebase into a **code-grounded threat model**. It generates a batch of *artifacts* — a data-flow diagram, STRIDE-flavored findings, a source-anchored risk registry, and a JSON export. Its job is to help you **identify the threat, ground the truth in code rather than in human discussion, and then act on it.**
 
 We say that up front so expectations are clear. Good threat modeling brings people, process, and evidence together, and this tool contributes the part that comes from the code. Our working principle is short and concrete: **identify the threat, ground the truth in code, then act on it.** Every finding is anchored to a real `file:line`, the **adversarial second pass** drops claims that have no code evidence, and what survives is concrete, reviewable input your team can act on.
 
@@ -19,12 +19,12 @@ Four questions worth asking of any threat model map neatly onto what this tool h
 
 ## The human-in-the-loop review workflow
 
-The tool's value depends on people doing the parts a scanner can't. A disciplined loop looks like this:
+The tool's value depends on people doing the parts it can't. A disciplined loop looks like this:
 
 1. **Feed it good context.** Garbage in, garbage out. The six context fields (project summary, security context, deployment context, developer guidance, suggested exclusions, free-form notes) are the highest-leverage inputs you have. Spend real time on them — especially *deployment context* (what's reachable, what's behind a boundary, data classification) — because the model can only see what you tell it plus the code itself. The quality of what comes back tracks the quality of what you put in.
 2. **Review the diagram first.** Before trusting any finding, sanity-check the **data-flow diagram** and trust boundaries against your actual architecture. If the diagram is wrong, the findings built on it are suspect. Fix the representation, then re-run.
 3. **Triangulate the findings.** Treat every STRIDE finding as a *hypothesis to verify, not a verdict*. Read the linked `file:line` yourself (or have a pair reviewer do it) before accepting, dismissing, or elevating a finding. Severity is model-judgment; your team owns the real priority.
-4. **Add what the scanner can't see.** People bring business context, known incidents, compliance obligations, and design intent that no static scan of the code contains. The artifact is a starting catalog, not the whole picture.
+4. **Add what the tool can't see.** People bring business context, known incidents, compliance obligations, and design intent that no static scan of the code contains. The artifact is a starting catalog, not the whole picture.
 5. **Turn decisions into tracked remediation.** Move accepted risks/mitigations into your normal issue tracker with owners and due dates. Identifying the threat and grounding it in code is only half the job — the value materializes when your team **acts** and the output changes what you actually do.
 
 ## When to run it
@@ -35,9 +35,11 @@ The tool's value depends on people doing the parts a scanner can't. A discipline
 
 ## What this tool is NOT
 
+No approach is a silver bullet, and the human-led threat modeling process has limits of its own — it's prone to human error, and it's usually stale the moment it's written, because code changes faster than a document. This tool has limits too, so it's worth being explicit about them:
+
 - It is **not a substitute for your team's judgment.** The output is an evidence-grounded starting catalog; deciding what's acceptable, what's urgent, and what to build is still your call (OWASP's [Threat Modeling](https://owasp.org/www-community/Threat_Modeling_Process) material is a useful practical reference for that work).
 - It is **not a correctness guarantee.** An LLM can hallucinate, misread a codebase, or miss a systemic issue. The **adversarial second pass** filters out ungrounded findings, but no static/LLM pass replaces human verification.
-- It is **not a full check-the-box compliance artifact** on its own — it generates raw material your team elevates into a maintained, living threat model.
+- It is **not a full check-the-box compliance artifact** on its own — it generates raw material your team elevates into a maintained threat model.
 
 ## Related
 
