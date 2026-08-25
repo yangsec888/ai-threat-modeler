@@ -63,7 +63,11 @@ jest.mock('../../db/database', () => ({
 
 import request from 'supertest';
 import express from 'express';
-import { threatModelingRoutes } from '../../routes/threatModeling';
+import {
+  threatModelingRoutes,
+  stampReportRegimeMetadata,
+} from '../../routes/threatModeling';
+import type { AgentProviderConfig } from '../../models/settings';
 import * as fs from 'fs';
 
 // Mock ThreatModelingJobModel
@@ -1030,6 +1034,103 @@ describe('Threat Modeling Routes', () => {
       const body = response.text.replace(/^\uFEFF/, '');
       expect(body).toContain('REVIEW STATUS');
       expect(body).toContain('accepted');
+    });
+  });
+
+  describe('stampReportRegimeMetadata (report regime injection, issue #2)', () => {
+    // Minimal report shaped like appsec-agent's threat_model_report.json.
+    function makeReport(): any {
+      return {
+        threat_model_report: {
+          metadata: {
+            project_name: 'test-app',
+            scan_date: '2026-01-01',
+            methodology: 'STRIDE',
+            total_threats_identified: 2,
+            total_risks_identified: 1,
+          },
+          threat_model: {
+            threats: [
+              { id: 'T-001', title: 'Untrusted input' },
+              { id: 'T-002', title: 'Injection' },
+            ],
+          },
+        },
+      };
+    }
+
+    const providerConfig: AgentProviderConfig = {
+      provider: 'deepinfra',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.deepinfra.com/v1/openai',
+      model: 'deepseek-ai/DeepSeek-R1',
+      claudeCodeMaxOutputTokens: null,
+      reasoningEffort: 'high',
+    };
+
+    const writePath = '/work_dir/job-regime/threat_model_report.json';
+
+    it('adversary pass ran and was adopted → adversary_review_applied=true, threat_adversary_enabled=true', () => {
+      (fs.writeFileSync as jest.Mock).mockClear();
+      const report = makeReport();
+
+      const result = stampReportRegimeMetadata(report, writePath, providerConfig, true, true);
+
+      expect(result).toBe(report);
+      expect(fs.writeFileSync).toHaveBeenCalledTimes(1);
+      const [, writtenJson] = (fs.writeFileSync as jest.Mock).mock.calls[0];
+      const parsed = JSON.parse(writtenJson);
+      const metadata = parsed.threat_model_report.metadata;
+      expect(metadata).toMatchObject({
+        llm_provider: 'deepinfra',
+        model: 'deepseek-ai/DeepSeek-R1',
+        reasoning_effort: 'high',
+        threat_adversary_enabled: true,
+        adversary_review_applied: true,
+      });
+      // Original fields untouched.
+      expect(metadata.project_name).toBe('test-app');
+      expect(metadata.total_threats_identified).toBe(2);
+    });
+
+    it('adversary pass ran but was rejected → adversary_review_applied=false, threat_adversary_enabled=true', () => {
+      (fs.writeFileSync as jest.Mock).mockClear();
+      const report = makeReport();
+
+      stampReportRegimeMetadata(report, writePath, providerConfig, true, false);
+
+      const [, writtenJson] = (fs.writeFileSync as jest.Mock).mock.calls[0];
+      const metadata = JSON.parse(writtenJson).threat_model_report.metadata;
+      expect(metadata.threat_adversary_enabled).toBe(true);
+      expect(metadata.adversary_review_applied).toBe(false);
+    });
+
+    it('adversary pass disabled → threat_adversary_enabled=false, adversary_review_applied=false', () => {
+      (fs.writeFileSync as jest.Mock).mockClear();
+      const report = makeReport();
+
+      stampReportRegimeMetadata(report, writePath, providerConfig, false, false);
+
+      const [, writtenJson] = (fs.writeFileSync as jest.Mock).mock.calls[0];
+      const metadata = JSON.parse(writtenJson).threat_model_report.metadata;
+      expect(metadata.threat_adversary_enabled).toBe(false);
+      expect(metadata.adversary_review_applied).toBe(false);
+    });
+
+    it('preserves existing metadata object and coerces null model/reasoning_effort to null', () => {
+      (fs.writeFileSync as jest.Mock).mockClear();
+      const report = makeReport();
+      const claudeConfig: AgentProviderConfig = { ...providerConfig, provider: 'claude', model: null, reasoningEffort: null };
+
+      stampReportRegimeMetadata(report, writePath, claudeConfig, false, false);
+
+      const [, writtenJson] = (fs.writeFileSync as jest.Mock).mock.calls[0];
+      const metadata = JSON.parse(writtenJson).threat_model_report.metadata;
+      expect(metadata.llm_provider).toBe('claude');
+      expect(metadata.model).toBeNull();
+      expect(metadata.reasoning_effort).toBeNull();
+      // The original metadata object must be reused (no metadata blow-away).
+      expect(JSON.parse(writtenJson).threat_model_report.metadata.project_name).toBe('test-app');
     });
   });
 });

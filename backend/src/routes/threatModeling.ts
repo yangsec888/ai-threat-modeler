@@ -425,6 +425,36 @@ async function runAgentCli(options: {
 }
 
 /**
+ * Stamp the model regime that produced a report into its metadata and rewrite
+ * the report file in place. This makes every shipped report self-describing —
+ * which provider/model/reasoning-effort produced it, whether the adversarial
+ * second pass was enabled, and whether the adversarial output was actually
+ * adopted — even when the artifact later lands in a SIEM, compliance archive,
+ * or stale CI cache (issue #2, main finding).
+ *
+ * `reportData` is the final report object (already swapped for the adversary
+ * output when it was adopted). Mutates its `threat_model_report.metadata` in
+ * place, then rewrites `finalReportPath` and (for downstream copy) forwards
+ * the returned data so the caller's copy step writes the identical object.
+ */
+export function stampReportRegimeMetadata(
+  reportData: any,
+  finalReportPath: string,
+  providerConfig: AgentProviderConfig,
+  adversaryEnabled: boolean,
+  adversaryApplied: boolean,
+): any {
+  const reportMetadata = (reportData.threat_model_report.metadata ??= {});
+  reportMetadata.llm_provider = providerConfig.provider;
+  reportMetadata.model = providerConfig.model ?? null;
+  reportMetadata.reasoning_effort = providerConfig.reasoningEffort ?? null;
+  reportMetadata.threat_adversary_enabled = Boolean(adversaryEnabled);
+  reportMetadata.adversary_review_applied = adversaryApplied;
+  fs.writeFileSync(finalReportPath, JSON.stringify(reportData, null, 2), 'utf-8');
+  return reportData;
+}
+
+/**
  * Process threat modeling job asynchronously using appsec-agent CLI
  * 
  * Workflow:
@@ -957,20 +987,17 @@ export async function processThreatModelingJob(jobId: string, repoPath: string, 
       }
     }
 
-    // Report metadata regime: stamp the model regime that produced this report
-    // (provider, model, reasoning effort, and whether the adversarial second
-    // pass ran and was adopted). This makes every shipped report self-describing
-    // even when it lands in a SIEM, compliance archive, or stale CI artifact.
-    // We inject AFTER the adversary swap so `reportData` is the final object,
-    // and rewrite `finalReportPath` in place before it is copied to jobReportDir.
-    const reportMetadata = (reportData.threat_model_report.metadata ??= {});
-    reportMetadata.llm_provider = providerConfig.provider;
-    reportMetadata.model = providerConfig.model ?? null;
-    reportMetadata.reasoning_effort = providerConfig.reasoningEffort ?? null;
-    reportMetadata.threat_adversary_enabled =
-      Boolean(SettingsModel.getThreatAdversaryEnabled());
-    reportMetadata.adversary_review_applied = adversaryApplied;
-    fs.writeFileSync(finalReportPath, JSON.stringify(reportData, null, 2), 'utf-8');
+    // Stamp the model regime into report metadata and rewrite the JSON in
+    // place (see stampReportRegimeMetadata). We inject AFTER the adversary swap
+    // so `reportData` is the final object, and rewrite `finalReportPath`
+    // before it is copied to jobReportDir.
+    reportData = stampReportRegimeMetadata(
+      reportData,
+      finalReportPath,
+      providerConfig,
+      SettingsModel.getThreatAdversaryEnabled(),
+      adversaryApplied,
+    );
 
     // Copy the single JSON report to jobReportDir
     const destReportPath = path.join(jobReportDir, 'threat_model_report.json');
