@@ -11,9 +11,9 @@ Built for AppSec teams who want a **code-review scanner that speaks threat-model
 Be clear about what you're getting, because the distinction matters:
 
 - **This is an AI-assisted code-review / threat-discovery scanner.** It turns a codebase into a *starting catalog* of DFD + STRIDE findings + risks, each anchored to a real `file:line`.
-- **This is not a threat modeling *process* in itself.** Per the [Threat Modeling Manifesto](https://www.threatmodelingmanifesto.org/), threat modeling is a **people-first, iterative activity** driven by dialog and varied viewpoints. A scanner can't do that for you. Think of the output as **SAST-with-narrative**: rich, well-grounded input that your team elevates into a living threat model — *not* a replacement for the human review, design discussions, and refinement that make threat modeling work.
+- **This is bound to the code, not to any doctrine.** We don't sign on to the Threat Modeling Manifesto's framing that threat modeling has to be a people-first activity driven by human discussion. Our working principle is short and concrete: **identify the threat, ground the truth in code instead of human discussion, then act on it.** So every finding is anchored to a real `file:line`, and claims without code evidence are dropped. The artifact still needs your team to **act on it** — but the truth of the model comes from the codebase, not from discussion alone.
 
-The value you get out is proportional to what you put in (**garbage in, garbage out**) and to how seriously your team does the **human-in-the-loop review** — verifying the diagram, triangulating findings against the code, and adding the business/design context a scanner can't see. See **[How to use the output](./docs/how-to-use-the-output.md)** for the full workflow, and how to use it as a *did-we-do-a-good-enough-job* check against an existing hand-built threat model.
+The value you get out is proportional to what you put in (**garbage in, garbage out**) and to how seriously your team **acts on the findings** — verifying the diagram, triangulating claims against the code, and adding the business/design context that lives outside the codebase. See **[How to use the output](./docs/how-to-use-the-output.md)** for the full workflow, and how to use it as a *did-we-do-a-good-enough-job* check against an existing hand-built threat model.
 
 ## 📹 Demo
 
