@@ -2,6 +2,7 @@
   "name": "threat-model-ai-frontend",
   "version": "3.2.2",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "next dev",
     "dev:e2e": "next dev -p 3333",

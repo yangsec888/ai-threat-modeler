@@ -3,6 +3,7 @@
   "version": "3.2.2",
   "description": "Express.js backend for AI Threat Modeler Dashboard",
   "main": "dist/index.js",
+  "license": "MIT",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
