@@ -66,9 +66,12 @@ subpackages.
 npm install             # if node_modules are missing/stale
 npm run backend:test    # Jest (backend)
 npm run frontend:test   # Jest (frontend)
-npm run frontend:lint   # next lint
 npm run build:all       # tsc + backend build + frontend build
 ```
+
+There is no ESLint lint gate in this repo (`next lint` has no config and would
+ask to bootstrap ESLint interactively), so do not add one mid-release — the Jests
+suites on both sides are the required gate.
 
 A green build is not the gate — the unit tests on both sides are. Do not skip
 them. The Playwright e2e suite (`cd frontend && npm run e2e`) is heavier and

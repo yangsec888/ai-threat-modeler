@@ -12,7 +12,13 @@
 # agree and that build + unit tests pass. With it, additionally asserts the
 # intended version and that no `v<version>` tag exists yet.
 set -uo pipefail
-cd "$(cd "$(dirname "$0")/../.." && pwd)"   # repo root
+# Anchor to the git repo root so every relative path below is correct no matter
+# where the script is invoked from. The script lives at .cursor/skills/scripts/,
+# three levels down, so a naive `cd ../..` would land in `.cursor`, not the root.
+cd "$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "verify-release: not inside a git repo — aborting." >&2
+  exit 1
+}
 
 EXPECTED="${1:-}"
 FAILED=0
@@ -26,9 +32,9 @@ echo "Verifying AI Threat Modeler release in $PWD"
 #    intended bump (if given).
 echo
 echo "version:"
-ROOT_VERSION=$(node -p "require('./package.json').version")
-BACKEND_VERSION=$(node -p "require('./backend/package.json').version")
-FRONTEND_VERSION=$(node -p "require('./frontend/package.json').version")
+ROOT_VERSION=$(node -e "console.log(require('$PWD/package.json').version)")
+BACKEND_VERSION=$(node -e "console.log(require('$PWD/backend/package.json').version)")
+FRONTEND_VERSION=$(node -e "console.log(require('$PWD/frontend/package.json').version)")
 pass "root=$ROOT_VERSION backend=$BACKEND_VERSION frontend=$FRONTEND_VERSION"
 [ "$ROOT_VERSION" = "$BACKEND_VERSION" ] && pass "root and backend agree" \
                                           || fail "root ($ROOT_VERSION) != backend ($BACKEND_VERSION)"
