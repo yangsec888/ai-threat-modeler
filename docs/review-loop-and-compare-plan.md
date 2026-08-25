@@ -1,7 +1,7 @@
 # Closing the Thread of the Threat-Modeling Review Loop
 
 **Status:** Approved for implementation (Act mode) — Feature B → A → C.
-**Author:** Cline (with feature owners AviD, Petra, izar)
+**Author:** Feature owners AviD, Petra, izar
 **Date:** 2026-08-24
 
 ---
