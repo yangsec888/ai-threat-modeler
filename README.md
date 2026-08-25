@@ -1,6 +1,6 @@
 # AI Threat Modeler
 
-**Point it at a codebase. Get a security threat model *artifact* back — to review, challenge, and feed into your real threat modeling process.**
+**Point it at a codebase. Get a code-grounded threat model back — ready to review, challenge, and act on. The parts the code can't see — the business context and the architecture behind it — are where you and your architects come in.**
 
 Upload a ZIP or import a GitHub repo, and AI Threat Modeler produces a [STRIDE](https://en.wikipedia.org/wiki/STRIDE_model)-flavored **threat-model artifact**: a data-flow diagram, candidate threats, and a risk registry — with **links to the exact source files and line numbers** whenever the AI agent can ground them in real code. An optional adversarial pass drops findings with no code evidence.
 

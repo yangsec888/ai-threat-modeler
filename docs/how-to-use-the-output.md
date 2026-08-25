@@ -1,4 +1,4 @@
-# What this is (and isn't): using the output in a real threat modeling process
+# What this is (and isn't): where the tool fits in your threat modeling
 
 This is an **AI-assisted code-review / threat-discovery scanner** that generates a batch of *artifacts* — a data-flow diagram, STRIDE-flavored findings, a source-anchored risk registry, and a JSON export. Its job is to help you **identify the threat, ground the truth in code rather than in human discussion, and then act on it.**
 
