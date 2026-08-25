@@ -27,3 +27,7 @@ Deeper design and refactoring notes live alongside this folder:
 
 - [`add-deployment-context-field-plan.md`](./add-deployment-context-field-plan.md)
 - [`threat-model-json-schema-refactoring.md`](./threat-model-json-schema-refactoring.md)
+
+## Project governance
+
+- [`owasp-project-application.md`](./owasp-project-application.md) | OWASP New Project Request application (PPS-153)
