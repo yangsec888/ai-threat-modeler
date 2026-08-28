@@ -16,6 +16,7 @@ import { ThreatModelingJobModel, JobPhase } from '../models/threatModelingJob';
 import { SettingsModel } from '../models/settings';
 import db from '../db/database';
 import logger from '../utils/logger';
+import { sanitizeForLog } from '../utils/logSanitizer';
 import { findAgentRunPath } from '../services/agentRunPath';
 import { buildAgentRunInvocation } from '../services/agentInvocation';
 import { extractZip } from '../services/zipExtract';
@@ -378,7 +379,7 @@ async function runAgentCli(options: {
       childProcess.stdout.setEncoding('utf-8');
       childProcess.stdout.on('data', (data: string) => {
         capturedOutput += data;
-        logger.info(data);
+        logger.info(sanitizeForLog(data));
       });
     }
 
@@ -386,7 +387,7 @@ async function runAgentCli(options: {
       childProcess.stderr.setEncoding('utf-8');
       childProcess.stderr.on('data', (data: string) => {
         capturedOutput += data;
-        logger.error(data);
+        logger.error(sanitizeForLog(data));
       });
     }
 
