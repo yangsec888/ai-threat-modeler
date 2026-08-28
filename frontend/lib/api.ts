@@ -6,7 +6,10 @@
 
 // Ensure HTTPS in production
 const getApiBaseUrl = (): string => {
-  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+  // Use 127.0.0.1 (not localhost) so the browser connects over IPv4. The
+  // backend binds to IPv4 loopback only, and `localhost` can resolve to `::1`,
+  // which may route to a different process also listening on port 3001.
+  const url = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001/api';
   // In production, enforce HTTPS
   if (process.env.NODE_ENV === 'production' && url.startsWith('http://')) {
     console.warn('⚠️  WARNING: API URL uses HTTP in production. Consider using HTTPS.');
@@ -54,6 +57,40 @@ const handleAuthError = (response: Response): void => {
       // window.location.reload();
     }
   }
+};
+
+// Extract a meaningful error message from a failed response body. The backend
+// usually returns JSON like { error, message }, but proxies/route 404s can
+// return HTML or invalid JSON that makes `response.json()` throw. In that case
+// fall back to the raw text and always include the HTTP status so the real
+// cause isn't masked as a generic "Unknown error occurred".
+const getErrorMessage = async (
+  response: Response,
+  fallback: string,
+): Promise<string> => {
+  const raw = await response.text().catch(() => '');
+  let body: unknown = null;
+  if (raw) {
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      body = null;
+    }
+  }
+
+  if (body && typeof body === 'object') {
+    const candidate = (body as { error?: unknown; message?: unknown }).error ??
+      (body as { error?: unknown; message?: unknown }).message;
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate;
+    }
+  }
+
+  if (typeof body === 'string' && body.trim().length > 0) {
+    return body;
+  }
+
+  return `${fallback} (HTTP ${response.status})`;
 };
 
 export const api = {
@@ -226,8 +263,8 @@ export const api = {
     
     if (!response.ok) {
       handleAuthError(response);
-      const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
-      throw new Error(errorData.error || errorData.message || 'Failed to get jobs');
+      const message = await getErrorMessage(response, 'Failed to get jobs');
+      throw new Error(message);
     }
     
     return response.json();
