@@ -6,6 +6,7 @@
 
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import dotenv from 'dotenv';
 import morgan from 'morgan';
 import * as fs from 'fs';
@@ -53,6 +54,28 @@ const HOST = process.env.HOST || '127.0.0.1';
 
 // Middleware
 app.use(cors());
+
+// Security headers (SEC: CWE-693). helmet defaults give us X-Content-Type-Options,
+// X-Frame-Options, Strict-Transport-Security, Referrer-Policy, etc. CSP is relaxed
+// just enough to keep Swagger UI (inline styles/scripts) and the SPA functional.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", 'data:'],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  }),
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
