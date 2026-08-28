@@ -16,6 +16,7 @@ import * as yaml from 'js-yaml';
 import { threatModelingRoutes } from './routes/threatModeling';
 import { chatRoutes } from './routes/chat';
 import { authRoutes } from './routes/auth';
+import { enforceSameOrigin } from './middleware/csrf';
 import { userRoutes } from './routes/users';
 import { settingsRoutes } from './routes/settings';
 import { githubRoutes } from './routes/github';
@@ -78,6 +79,9 @@ app.use(
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Reject cross-origin state-changing requests (CSRF defense-in-depth).
+app.use(enforceSameOrigin);
 
 // HTTP request logging
 app.use(morgan('combined', { stream: morganStream }));
