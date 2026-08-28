@@ -8,6 +8,7 @@ import express, { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { UserModel } from '../models/user';
 import { generateToken, authenticateToken, AuthRequest } from '../middleware/auth';
+import { validatePassword } from '../utils/passwordPolicy';
 import logger from '../utils/logger';
 
 const router = express.Router();
@@ -44,15 +45,14 @@ router.post('/register', loginLimiter, async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Username, email, and password are required' });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    const policy = validatePassword(password);
+    if (!policy.valid) {
+      return res.status(400).json({ error: policy.error });
     }
 
-    // Check if user already exists
     if (UserModel.findByUsername(username)) {
       return res.status(409).json({ error: 'Username already exists' });
     }
-
     if (UserModel.findByEmail(email)) {
       return res.status(409).json({ error: 'Email already exists' });
     }
@@ -155,8 +155,9 @@ router.post('/change-password', authenticateToken, async (req: AuthRequest, res:
       return res.status(400).json({ error: 'Current password and new password are required' });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'New password must be at least 6 characters long' });
+    const policy = validatePassword(newPassword);
+    if (!policy.valid) {
+      return res.status(400).json({ error: policy.error });
     }
 
     // Get user with password hash

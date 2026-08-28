@@ -10,6 +10,7 @@ import { UserModel } from '../models/user';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { requireAdmin } from '../middleware/permissions';
 import { UserRole } from '../db/database';
+import { validatePassword } from '../utils/passwordPolicy';
 import logger from '../utils/logger';
 
 const router = express.Router();
@@ -84,8 +85,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Username, email, and password are required' });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    const policy = validatePassword(password);
+    if (!policy.valid) {
+      return res.status(400).json({ error: policy.error });
     }
 
     // Validate role
@@ -165,8 +167,9 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     if (email) updates.email = email;
     if (userRole) updates.role = userRole;
     if (password) {
-      if (password.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+      const policy = validatePassword(password);
+      if (!policy.valid) {
+        return res.status(400).json({ error: policy.error });
       }
       updates.password = password;
     }

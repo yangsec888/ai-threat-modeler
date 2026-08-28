@@ -38,7 +38,7 @@ describe('Auth Routes', () => {
         .send({
           username: 'newuser',
           email: 'newuser@example.com',
-          password: 'password123',
+          password: 'TestPass123!',
         });
 
       expect(response.status).toBe(201);
@@ -75,7 +75,7 @@ describe('Auth Routes', () => {
         });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('6 characters');
+      expect(response.body.error).toContain('8 characters');
     });
 
     it('should reject duplicate username', async () => {
@@ -84,7 +84,7 @@ describe('Auth Routes', () => {
         .send({
           username: 'testauth',
           email: 'duplicate@example.com',
-          password: 'password123',
+          password: 'TestPass123!',
         });
 
       expect(response.status).toBe(409);
@@ -97,7 +97,7 @@ describe('Auth Routes', () => {
         .send({
           username: 'differentuser',
           email: 'testauth@example.com',
-          password: 'password123',
+          password: 'TestPass123!',
         });
 
       expect(response.status).toBe(409);
@@ -249,7 +249,7 @@ describe('Auth Routes', () => {
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           currentPassword: 'testpass123',
-          newPassword: 'newpassword123',
+          newPassword: 'NewPass123!',
         });
 
       // Log response for debugging if test fails
@@ -266,7 +266,7 @@ describe('Auth Routes', () => {
         .post('/api/auth/login')
         .send({
           username: 'testauth',
-          password: 'newpassword123',
+          password: 'NewPass123!',
         });
 
       expect(loginResponse.status).toBe(200);
@@ -297,7 +297,7 @@ describe('Auth Routes', () => {
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           currentPassword: 'wrongpassword',
-          newPassword: 'newpassword123',
+          newPassword: 'NewPass123!',
         });
 
       expect(response.status).toBe(401);
@@ -327,7 +327,7 @@ describe('Auth Routes', () => {
         });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('6 characters');
+      expect(response.body.error).toContain('8 characters');
     });
 
     it('should reject password change without authentication', async () => {
@@ -335,7 +335,7 @@ describe('Auth Routes', () => {
         .post('/api/auth/change-password')
         .send({
           currentPassword: 'testpass123',
-          newPassword: 'newpassword123',
+          newPassword: 'NewPass123!',
         });
 
       expect(response.status).toBe(401);
