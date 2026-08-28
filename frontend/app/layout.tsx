@@ -15,9 +15,9 @@ export const metadata: Metadata = {
   title: 'AI Threat Modeler Dashboard',
   description: 'Web dashboard for AI Threat Modeler - Security automation and analysis',
   icons: {
-    icon: '/favicon.jpeg',
-    shortcut: '/favicon.jpeg',
-    apple: '/favicon.jpeg',
+    icon: '/icon.png',
+    shortcut: '/icon.png',
+    apple: '/icon.png',
   },
 }
 
