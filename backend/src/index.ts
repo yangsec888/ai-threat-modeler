@@ -6,6 +6,7 @@
 
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import dotenv from 'dotenv';
 import morgan from 'morgan';
 import * as fs from 'fs';
@@ -15,6 +16,8 @@ import * as yaml from 'js-yaml';
 import { threatModelingRoutes } from './routes/threatModeling';
 import { chatRoutes } from './routes/chat';
 import { authRoutes } from './routes/auth';
+import { enforceSameOrigin } from './middleware/csrf';
+import { allowedOrigins } from './config/allowedOrigins';
 import { userRoutes } from './routes/users';
 import { settingsRoutes } from './routes/settings';
 import { githubRoutes } from './routes/github';
@@ -52,9 +55,57 @@ const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || '127.0.0.1';
 
 // Middleware
-app.use(cors());
+// Restrict cross-origin access to the configured allowlist (SEC: CWE-346).
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Non-browser requests (no Origin header) are allowed through.
+      if (!origin) {
+        return callback(null, true);
+      }
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
+    credentials: false,
+  }),
+);
+
+// Security headers (SEC: CWE-693). helmet defaults give us X-Content-Type-Options,
+// X-Frame-Options, Strict-Transport-Security, Referrer-Policy, etc.
+//
+// CSP is kept strict for the API itself (no 'unsafe-inline'/'unsafe-eval') so
+// any content that ever gets rendered/reflected faces an actual script barrier.
+// Swagger UI needs a more permissive policy, so /api-docs is excluded here and
+// gets its own relaxed CSP on the dedicated router below.
+const strictHelmet = helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", 'data:'],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+});
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api-docs')) {
+    return next();
+  }
+  return strictHelmet(req, res, next);
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Reject cross-origin state-changing requests (CSRF defense-in-depth).
+app.use(enforceSameOrigin);
 
 // HTTP request logging
 app.use(morgan('combined', { stream: morganStream }));
@@ -79,8 +130,27 @@ try {
   };
 }
 
-// Swagger UI setup
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+// Swagger UI setup. Only this path gets the relaxed CSP (Swagger UI requires
+// inline scripts/styles and eval-based rendering); every other route retains the
+// strict policy applied by `strictHelmet` earlier, so the XSS barrier stays up
+// outside of /api-docs.
+const relaxedHelmet = helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", 'data:'],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+});
+
+app.use('/api-docs', relaxedHelmet, swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
   customCss: '.swagger-ui .topbar { display: none }',
   customSiteTitle: 'AI Threat Modeler API Documentation',
   swaggerOptions: {
@@ -101,10 +171,11 @@ app.use('/api/github', githubRoutes);
 app.use('/api/threat-modeling', threatModelingRoutes);
 app.use('/api/chat', chatRoutes);
 
-// Error handling middleware
+// Error handling middleware (SEC: CWE-209). Log the full detail server-side
+// but never echo internal error messages or stack traces back to the client.
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
   logger.error('Unhandled error', { error: err.message, stack: err.stack, path: req.path, method: req.method });
-  res.status(500).json({ error: 'Internal server error', message: err.message });
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 app.listen(PORT, HOST, () => {

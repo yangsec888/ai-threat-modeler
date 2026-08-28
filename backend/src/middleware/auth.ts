@@ -86,6 +86,6 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
 }
 
 export function generateToken(userId: number, username: string): string {
-  return jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: '3d' });
 }
 

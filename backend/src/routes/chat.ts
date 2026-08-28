@@ -12,6 +12,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { Readable, Writable } from 'stream';
 import logger from '../utils/logger';
+import { sanitizeForLog } from '../utils/logSanitizer';
 import { findAgentRunPath } from '../services/agentRunPath';
 import { buildAgentRunInvocation } from '../services/agentInvocation';
 
@@ -79,8 +80,8 @@ async function createChatSession(userId: number, role: string): Promise<ChatSess
   childProcess.stdout.setEncoding('utf-8');
   childProcess.stdout.on('data', (data: string) => {
     session.buffer += data;
-    logger.info(`[User ${userId}] ${data}`);
-    
+    logger.info(`[User ${userId}] ${sanitizeForLog(data)}`);
+
     // Try to extract and resolve pending responses
     processPendingResponses(session);
   });
@@ -88,7 +89,7 @@ async function createChatSession(userId: number, role: string): Promise<ChatSess
   childProcess.stderr.setEncoding('utf-8');
   childProcess.stderr.on('data', (data: string) => {
     session.buffer += data;
-    logger.error(`[User ${userId}] ${data}`);
+    logger.error(`[User ${userId}] ${sanitizeForLog(data)}`);
   });
 
   childProcess.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
