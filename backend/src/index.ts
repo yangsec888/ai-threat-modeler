@@ -73,25 +73,33 @@ app.use(
 );
 
 // Security headers (SEC: CWE-693). helmet defaults give us X-Content-Type-Options,
-// X-Frame-Options, Strict-Transport-Security, Referrer-Policy, etc. CSP is relaxed
-// just enough to keep Swagger UI (inline styles/scripts) and the SPA functional.
-app.use(
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'"],
-        fontSrc: ["'self'", 'data:'],
-        objectSrc: ["'none'"],
-        frameAncestors: ["'none'"],
-      },
+// X-Frame-Options, Strict-Transport-Security, Referrer-Policy, etc.
+//
+// CSP is kept strict for the API itself (no 'unsafe-inline'/'unsafe-eval') so
+// any content that ever gets rendered/reflected faces an actual script barrier.
+// Swagger UI needs a more permissive policy, so /api-docs is excluded here and
+// gets its own relaxed CSP on the dedicated router below.
+const strictHelmet = helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", 'data:'],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
     },
-    crossOriginEmbedderPolicy: false,
-  }),
-);
+  },
+  crossOriginEmbedderPolicy: false,
+});
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api-docs')) {
+    return next();
+  }
+  return strictHelmet(req, res, next);
+});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -122,8 +130,27 @@ try {
   };
 }
 
-// Swagger UI setup
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+// Swagger UI setup. Only this path gets the relaxed CSP (Swagger UI requires
+// inline scripts/styles and eval-based rendering); every other route retains the
+// strict policy applied by `strictHelmet` earlier, so the XSS barrier stays up
+// outside of /api-docs.
+const relaxedHelmet = helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", 'data:'],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+});
+
+app.use('/api-docs', relaxedHelmet, swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
   customCss: '.swagger-ui .topbar { display: none }',
   customSiteTitle: 'AI Threat Modeler API Documentation',
   swaggerOptions: {
