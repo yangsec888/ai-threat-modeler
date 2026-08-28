@@ -5,14 +5,37 @@
  */
 
 import express, { Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { UserModel } from '../models/user';
 import { generateToken, authenticateToken, AuthRequest } from '../middleware/auth';
 import logger from '../utils/logger';
 
 const router = express.Router();
 
+// SEC (CWE-307): throttle credential-guessing endpoints. Login/register get a
+// stricter window than change-password (which already requires a valid token).
+// Limits are configurable so the test suite can raise them (brute-force tests
+// exercise login far more than a real client would).
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: Number(process.env.RATE_LIMIT_AUTH_MAX) || 100,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: Number(process.env.RATE_LIMIT_LOGIN_MAX) || 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again later.' },
+});
+
+router.use(authLimiter);
+
 // Register new user
-router.post('/register', async (req: Request, res: Response) => {
+router.post('/register', loginLimiter, async (req: Request, res: Response) => {
   try {
     const { username, email, password } = req.body;
 
@@ -56,7 +79,7 @@ router.post('/register', async (req: Request, res: Response) => {
 });
 
 // Login
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   try {
     const { username, password } = req.body;
 

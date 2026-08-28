@@ -15,30 +15,9 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { isOriginAllowed } from '../config/allowedOrigins';
 
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-
-/**
- * Origins allowed to make state-changing requests.
- *
- * Configure with a comma-separated `ALLOWED_ORIGINS` env var when the frontend
- * is not served from a local Next.js dev server or the docker-compose mapping.
- * Defaults cover the two standard local/proxy shapes the app ships with.
- */
-function resolveAllowedOrigins(): Set<string> {
-  const raw = process.env.ALLOWED_ORIGINS;
-  if (raw && raw.trim().length > 0) {
-    return new Set(
-      raw
-        .split(',')
-        .map((o) => o.trim())
-        .filter((o) => o.length > 0),
-    );
-  }
-  return new Set(['http://localhost:3000', 'http://127.0.0.1:3000']);
-}
-
-const ALLOWED_ORIGINS = resolveAllowedOrigins();
 
 function extractOrigin(req: Request): string | null {
   const origin = req.headers.origin;
@@ -71,7 +50,7 @@ export function enforceSameOrigin(req: Request, res: Response, next: NextFunctio
     return next();
   }
 
-  if (ALLOWED_ORIGINS.has(origin)) {
+  if (isOriginAllowed(origin)) {
     return next();
   }
 

@@ -4,6 +4,10 @@
 // Set test environment variables FIRST, before any imports
 process.env.JWT_SECRET = 'test-secret-key';
 process.env.NODE_ENV = 'test';
+// Raise rate limits so the auth test suite (which logs in repeatedly) is not
+// throttled by the production default of 10 logins / 15 min.
+process.env.RATE_LIMIT_LOGIN_MAX = '10000';
+process.env.RATE_LIMIT_AUTH_MAX = '10000';
 
 // Suppress console.log and console.error during tests to reduce noise
 // Store original console methods

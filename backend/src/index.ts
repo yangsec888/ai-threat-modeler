@@ -17,6 +17,7 @@ import { threatModelingRoutes } from './routes/threatModeling';
 import { chatRoutes } from './routes/chat';
 import { authRoutes } from './routes/auth';
 import { enforceSameOrigin } from './middleware/csrf';
+import { allowedOrigins } from './config/allowedOrigins';
 import { userRoutes } from './routes/users';
 import { settingsRoutes } from './routes/settings';
 import { githubRoutes } from './routes/github';
@@ -54,7 +55,22 @@ const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || '127.0.0.1';
 
 // Middleware
-app.use(cors());
+// Restrict cross-origin access to the configured allowlist (SEC: CWE-346).
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Non-browser requests (no Origin header) are allowed through.
+      if (!origin) {
+        return callback(null, true);
+      }
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
+    credentials: false,
+  }),
+);
 
 // Security headers (SEC: CWE-693). helmet defaults give us X-Content-Type-Options,
 // X-Frame-Options, Strict-Transport-Security, Referrer-Policy, etc. CSP is relaxed
@@ -128,10 +144,11 @@ app.use('/api/github', githubRoutes);
 app.use('/api/threat-modeling', threatModelingRoutes);
 app.use('/api/chat', chatRoutes);
 
-// Error handling middleware
+// Error handling middleware (SEC: CWE-209). Log the full detail server-side
+// but never echo internal error messages or stack traces back to the client.
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
   logger.error('Unhandled error', { error: err.message, stack: err.stack, path: req.path, method: req.method });
-  res.status(500).json({ error: 'Internal server error', message: err.message });
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 app.listen(PORT, HOST, () => {
